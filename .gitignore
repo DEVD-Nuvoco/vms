@@ -1,0 +1,91 @@
+# Operating system junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local.php
+config.local.php
+db.local.php
+emailSMTP.local.php
+
+# PHP dependencies and tooling
+vendor/
+composer.phar
+composer.lock
+.phpunit.result.cache
+.php-cs-fixer.cache
+
+# Front-end vendor libraries are restored from package-lock.json
+lib/
+Star-VMS/lib/
+
+# Node dependencies and build output
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+
+# Logs, runtime cache, and temp files
+*.log
+debug_log.txt
+logs/
+log/
+cache/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# VMS generated/runtime files
+uploads/
+**/uploads/
+qrcodes/
+**/qrcodes/
+phpqrcode/cache/
+phpqrcode/temp/
+phpqrcode/*-errors.txt
+
+# Visitor/profile photos and exported screenshots
+*.jpg
+*.jpeg
+*.webp
+*.tiff
+*.bmp
+
+# Database dumps and backups
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.bak
+*.backup
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.gz
+
+# Ad-hoc local backup copies
+* copy.php
+*copy.php
+*--BACKUP
+*.old
+*.orig
+
+# Keep source images/assets trackable; ignore only generated upload folders above.
