@@ -88,19 +88,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="form-group">
                     <label>Email (Login ID)</label>
                     <input type="email" name="email" class="form-control" required
-                           value="<?= htmlspecialchars($_POST['email'] ?? 'admin@nuvoco.com') ?>">
+                           value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
                 </div>
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" name="password" class="form-control" required value="admin@123">
+                    <input type="password" name="password" class="form-control" required value="">
                 </div>
                 <button type="submit" class="btn btn-clgp btn-block">Sign In</button>
             </form>
 
             <hr>
-            <p class="small text-muted mb-0">
-                Default admin (change after first login): <strong>admin@nuvoco.com</strong> / <strong>123456</strong>
-            </p>
+
             <p class="text-center mt-3 mb-0">
                 <a href="../signup.php" class="small">← Back to VMS Visitor Login</a>
             </p>
