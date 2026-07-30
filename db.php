@@ -11,7 +11,8 @@ $appURL = 'https://vms.nuvoco.in/vms/';
 //header("Access-Control-Allow-Headers: Origin, Content-Type");
 
 global $mysqli; global $mysqli2;
-$mysqli = new mysqli("localhost","powerBI","uh(*6l7AQJ@qM.@7","vms");
+// $mysqli = new mysqli("localhost","powerBI","uh(*6l7AQJ@qM.@7","vms");
+$mysqli = new mysqli("localhost","root","","vms");
 //$mysqli = new mysqli($host, $username, $passwd, $dbName, $port, $socket);
 // Check connection
 if ($mysqli -> connect_errno) {
