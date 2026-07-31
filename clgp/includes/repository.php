@@ -561,7 +561,7 @@ function clgp_list_ams_plants(?string $q = null): array
     $product = clgp_ams_product_line();
     $stmt = $db->prepare(
         "SELECT DISTINCT empWorkLocation
-         FROM tbl_nuvo_employee
+         FROM tbl_nuvo_employee_clgp
          WHERE empStatus = 'Active'
            AND empProductLine = ?
            AND empWorkLocation IS NOT NULL
@@ -606,7 +606,7 @@ function clgp_list_ams_departments(string $plant): array
     $product = clgp_ams_product_line();
     $stmt = $db->prepare(
         "SELECT DISTINCT COALESCE(NULLIF(TRIM(Department), ''), NULLIF(TRIM(empDepartment), '')) AS dept
-         FROM tbl_nuvo_employee
+         FROM tbl_nuvo_employee_clgp
          WHERE empStatus = 'Active'
            AND empProductLine = ?
            AND SUBSTRING(empWorkLocation, LOCATE('-', empWorkLocation) + 1) = ?
@@ -641,7 +641,7 @@ function clgp_search_employees(string $q, int $limit = 20, ?string $plant = null
     $department = $department !== null ? trim($department) : '';
 
     $sql = "SELECT empCode, empName, empBusiEmail, empDepartment, Department, empPlant, empWorkLocation, empProductLine
-            FROM tbl_nuvo_employee
+            FROM tbl_nuvo_employee_clgp
             WHERE empStatus = 'Active'
               AND empProductLine = ?
               AND (empName LIKE ? OR empCode LIKE ? OR empBusiEmail LIKE ? OR IFNULL(searchIndex,'') LIKE ?)";
@@ -666,7 +666,7 @@ function clgp_search_employees(string $q, int $limit = 20, ?string $plant = null
     $stmt = $db->prepare($sql);
     if (!$stmt) {
         $sql = "SELECT empCode, empName, empBusiEmail, empDepartment, Department, empPlant, empWorkLocation, empProductLine
-                FROM tbl_nuvo_employee
+                FROM tbl_nuvo_employee_clgp
                 WHERE empStatus = 'Active'
                   AND empProductLine = ?
                   AND (empName LIKE ? OR empCode LIKE ? OR empBusiEmail LIKE ?)";
