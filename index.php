@@ -364,7 +364,7 @@ $(document).ready(function () {
             meetings.forEach(meeting => {
                 html += `
                     <tr>
-                        <td ><img src="https://vms.nuvoco.in/vmsdb/faces/${meeting.visitor_id}_profile.webp" width="80" alt=""></td>
+                        <td ><img src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=${meeting.visitor_id}_profile.webp" width="80" alt=""></td>
                         <td class="text-center">${meeting.meeting_person}</td>
                         <td class="text-center">${meeting.visit_type}</td>
                         <td class="text-center">${meeting.visit_purpose}</td>
@@ -411,7 +411,7 @@ function renderOngoingMeetings(meetings, loginType) {
             <tr data-meeting-id="${meeting.meeting_id}">
                 <td class="text-center">
                     ${meeting.visting_person}
-                    <img src="https://vms.nuvoco.in/vmsdb/faces/${meeting.visitor_id}_profile.webp" width="80" alt="">
+                    <img src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=${meeting.visitor_id}_profile.webp" width="80" alt="">
                 </td>
                 <td class="text-center">${meeting.meeting_person}</td>
                 <td class="text-center">

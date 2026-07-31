@@ -198,7 +198,7 @@ GROUP BY
                 echo '<tr style="color:black;">';
                 echo '<td>' . htmlspecialchars($row['meeting_id']) . '</td>';
 
-                echo '<td>' . htmlspecialchars($row['userName']) . '<br><img width = 100 src="https://vms.nuvoco.in/vmsdb/faces/' . htmlspecialchars($row['visitor_id']) . '_profile.webp" alt="Visitor Image"></td>';
+                echo '<td>' . htmlspecialchars($row['userName']) . '<br><img width = 100 src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=' . htmlspecialchars($row['visitor_id']) . '_profile.webp" alt="Visitor Image"></td>';
                 echo '<td> <strong>Email : </strong>' . htmlspecialchars($row['userEmail']) .' <br> <strong>Mobile : </strong>' . htmlspecialchars($row['userMobile']) . '<br> <strong>Company : </strong>' . htmlspecialchars($row['userCompany']) . ' <br> <strong>Designation : </strong>' . htmlspecialchars($row['userDesignation']) . '<br> <strong>Location : </strong>' . htmlspecialchars($row['userAddress']) . ' <br><strong>Visit Type : </strong>' . htmlspecialchars($row['visit_type']) . '</td>';
 
                 echo '<td> <strong>Name : </strong>' . htmlspecialchars($row['meeting_person']) . ' <br><strong>Mobile : </strong>' . htmlspecialchars($row['empBusiMobile']) . '<br> <strong>Email : </strong>' . htmlspecialchars($row['empBusiEmail']) .' <br><strong>Department : </strong>' . htmlspecialchars($row['Department']) .'<br><strong>Start time : </strong> <br>'. htmlspecialchars($row['meeting_start_time']) . ' <br> <strong>End time :</strong>  <br>' . htmlspecialchars($row['meeting_end_time']) . '</td>';

@@ -229,11 +229,11 @@ $result = $mysqli->query($query);
             <div class="visitor-card">
                 <?php if ($row['user_id']): ?>
                     <!-- Fetch photo from the faces directory -->
-                    <img src="https://vms.nuvoco.in/vmsdb/faces/<?= $row['user_id']; ?>_profile.webp" alt="Photo">
+                    <img src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=<?= $row['user_id']; ?>_profile.webp" alt="Photo">
                     <span class="visitor-name"><?= htmlspecialchars($row['userName']); ?></span>
                 <?php else: ?>
                     <!-- Custom visitor with uploaded photo -->
-                    <img src="<?= $row['photo'] ?: 'default.png'; ?>" alt="Photo">
+                    <img src="<?= $row['photo'] ?: 'img/faces/default.png'; ?>" alt="Photo">
                     <span class="visitor-name"><?= htmlspecialchars($row['name']); ?></span>
                 <?php endif; ?>
             </div>
@@ -386,7 +386,7 @@ if ($result && $result->num_rows > 0) {
     // 2) Visitor Name + photo
     echo '<td>' .
          htmlspecialchars($row['userName'] ?? $row['empName'] ?? '') .
-         '<br><img width="100" src="https://vms.nuvoco.in/vmsdb/faces/' .
+         '<br><img width="100" src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=' .
          htmlspecialchars($row['visitor_id']) .
          '_profile.webp" alt="Visitor Image"></td>';
 

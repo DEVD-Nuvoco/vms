@@ -248,7 +248,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         while ($blRow = $blResult->fetch_assoc()) {
             $blacklistId = $blRow['blacklist_id'];
             $displayName = $blRow['display_name'];
-            $displayPhoto = 'https://vms.nuvoco.in/vmsdb/faces/'.$blRow['user_id'].'_profile.webp';
+            $displayPhoto = 'https://vms.nuvoco.in/vmsdb/serve_image.php?image='.$blRow['user_id'].'_profile.webp';
             echo "<tr>";
             echo "<td>{$blacklistId}</td>";
             echo "<td>{$displayName}</td>";

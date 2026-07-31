@@ -219,11 +219,11 @@ $result = $mysqli->query($query);
             <div class="visitor-card">
                 <?php if ($row['user_id']): ?>
                     <!-- Fetch photo from the faces directory -->
-                    <img src="https://vms.nuvoco.in/vmsdb/faces/<?= $row['user_id']; ?>_profile.webp" alt="Photo">
+                    <img src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=<?= $row['user_id']; ?>_profile.webp" alt="Photo">
                     <span class="visitor-name"><?= htmlspecialchars($row['userName']); ?></span>
                 <?php else: ?>
                     <!-- Custom visitor with uploaded photo -->
-                    <img src="<?= $row['photo'] ?: 'default.png'; ?>" alt="Photo">
+                    <img src="<?= $row['photo'] ?: 'img/faces/default.png'; ?>" alt="Photo">
                     <span class="visitor-name"><?= htmlspecialchars($row['name']); ?></span>
                 <?php endif; ?>
             </div>
@@ -362,7 +362,7 @@ if ($result && $result->num_rows > 0) {
   while ($row = $result->fetch_assoc()) {
       echo '<tr style="color:black;">';
       echo '<td>' . htmlspecialchars($row['meeting_id']) . '</td>';
-      echo '<td>' . htmlspecialchars($row['userName']) . '<br><img width="100" src="https://vms.nuvoco.in/vmsdb/faces/' . htmlspecialchars($row['visitor_id']) . '_profile.webp" alt="Visitor Image"></td>';
+      echo '<td>' . htmlspecialchars($row['userName']) . '<br><img width="100" src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=' . htmlspecialchars($row['visitor_id']) . '_profile.webp" alt="Visitor Image"></td>';
       echo '<td> <strong>Email : </strong>' . htmlspecialchars($row['userEmail']) . ' <br> <strong>Mobile : </strong>' . htmlspecialchars($row['userMobile']) . '<br> <strong>Company : </strong>' . htmlspecialchars($row['userCompany']) . ' <br> <strong>Designation : </strong>' . htmlspecialchars($row['userDesignation']) . '<br> <strong>Location : </strong>' . htmlspecialchars($row['userAddress']) . ' <br><strong>Visit Type : </strong>' . htmlspecialchars($row['visit_type']) . '</td>';
       echo '<td> <strong>Name : </strong>' . htmlspecialchars($row['meeting_person']) . ' <br><strong>Mobile : </strong>' . htmlspecialchars($row['empBusiMobile']) . '<br> <strong>Email : </strong>' . htmlspecialchars($row['empBusiEmail']) . ' <br><strong>Department : </strong>' . htmlspecialchars($row['Department']) . '<br><strong>Start time : </strong> <br>' . htmlspecialchars($row['meeting_start_time']) . ' <br> <strong>End time :</strong>  <br>' . htmlspecialchars($row['meeting_end_time']) . '</td>';
       if ($row['gate_in'] === '0000-00-00 00:00:00') {

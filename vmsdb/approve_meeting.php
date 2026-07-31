@@ -228,7 +228,7 @@ $gmStmt->close();
 }
 
 $meetingImageUrl = "https://vms.nuvoco.in/vmsdb/uploads/{$meeting_id}.jpg";
-$profileImageUrl = "https://vms.nuvoco.in/vmsdb/faces/{$userId}_profile.webp";
+$profileImageUrl = "https://vms.nuvoco.in/vmsdb/serve_image.php?image={$userId}_profile.webp";
 
 function urlExists($url) {
     $headers = @get_headers($url);

@@ -420,14 +420,14 @@ function fetchVisitorSuggestions(query) {
                         li.className = 'list-group-item d-flex align-items-center'; // Styling for list item
 
                         const img = document.createElement('img');
-                        img.src = `https://vms.nuvoco.in/vmsdb/faces/${visitor.userId}_profile.webp`; // Dynamic image URL
+                        img.src = `https://vms.nuvoco.in/vmsdb/serve_image.php?image=${visitor.userId}_profile.webp`; // Dynamic image URL
                         img.alt = visitor.userName; // Alt text
                         img.className = 'rounded-circle me-3'; // Bootstrap styling for rounded images
                         img.style.width = '40px'; // Set image size
                         img.style.height = '40px';
                         img.style.margin = '10px';  // Set image size
                         img.onerror = function () {
-                            this.src = 'https://vms.nuvoco.in/vmsdb/faces/default2.jpg'; // Default image URL
+                            this.src = 'https://vms.nuvoco.in/img/faces/default.png'; // Default image URL
                         };
                         // Add visitor name
                         const span = document.createElement('span');

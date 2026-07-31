@@ -76,7 +76,7 @@ $result = mysqli_fetch_array($getData);
                 <!-- Profile Picture -->
                 <div class="col-lg-5 align-center az-img-profileSet">
                     <img 
-  src="https://vms.nuvoco.in/vmsdb/faces/<?= $userId; ?>_profile.webp?v=<?= $version; ?>" 
+  src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=<?= $userId; ?>_profile.webp&v=<?= $version; ?>" 
   alt="Profile Photo" 
 />
                     <div class="button-container">

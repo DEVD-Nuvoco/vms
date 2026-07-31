@@ -39,7 +39,7 @@ if($_SESSION['loginType']=='V'){
 
 
 if (!empty($_SESSION['profilePic'])) {  
-  $proFilePic = "https://vms.nuvoco.in/vmsdb/faces/".$userId."_profile.webp"; 
+  $proFilePic = "https://vms.nuvoco.in/vmsdb/serve_image.php?image=".$userId."_profile.webp"; 
 } else { 
   
 }
@@ -140,8 +140,8 @@ autoSetLiveStatus($_SESSION['loginId']);
         </div><!-- az-header-menu -->
        
           <div class="dropdown az-profile-menu">
-            <a href="" class="az-img-user <?php echo getCurrentLive($_SESSION['loginId'])?>"><img 
-  src="https://vms.nuvoco.in/vmsdb/faces/<?= $userId; ?>_profile.webp?v=<?= $version; ?>" 
+              <a href="" class="az-img-user <?php echo getCurrentLive($_SESSION['loginId'])?>"><img 
+  src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=<?= $userId; ?>_profile.webp&v=<?= $version; ?>" 
   alt="Profile Photo" 
 />
             </a>
@@ -152,7 +152,7 @@ autoSetLiveStatus($_SESSION['loginId']);
               <div class="az-header-profile">
                 <div class="az-img-user">
                <img 
-  src="https://vms.nuvoco.in/vmsdb/faces/<?= $userId; ?>_profile.webp?v=<?= $version; ?>" 
+  src="https://vms.nuvoco.in/vmsdb/serve_image.php?image=<?= $userId; ?>_profile.webp&v=<?= $version; ?>" 
   alt="Profile Photo" 
 />
 
