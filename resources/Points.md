@@ -2,6 +2,10 @@
 
 SMTP uses shared VMS `emailSMTP.php` (`sent_email`).
 
+Every CLGP email includes a green **Click here to login** button plus the full URL:
+`https://vms.nuvoco.in/vms/clgp/login.php`
+(override with `CLGP_PUBLIC_BASE_URL` if the server path differs).
+
 ## A. When a **user / login is created** (Approval Matrix)
 
 | Event | Who receives email | Content |

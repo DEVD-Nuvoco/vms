@@ -13,6 +13,15 @@ require_once __DIR__ . '/includes/ui.php';
 define('CLGP_APP_NAME', 'Access control for Contract Workman Entry/Exit Pass');
 define('CLGP_APP_SHORT', 'CLGP');
 
+/**
+ * Absolute public base for CLGP (used in emails).
+ * Override on non-prod if needed, e.g. define before requiring config.
+ * Must include /clgp with no trailing slash.
+ */
+if (!defined('CLGP_PUBLIC_BASE_URL')) {
+    define('CLGP_PUBLIC_BASE_URL', 'https://vms.nuvoco.in/vms/clgp');
+}
+
 /** Phase 1 roles (no contractor login). */
 $CLGP_ROLES = [
     'admin'      => ['label' => 'Admin',        'group' => 'admin', 'icon' => 'typcn-cog-outline'],
@@ -228,15 +237,59 @@ function clgp_mail_ready(): bool
     return function_exists('sent_email');
 }
 
+/**
+ * Absolute CLGP base URL for email links (email clients need full https://…).
+ */
+function clgp_public_base_url(): string
+{
+    $configured = defined('CLGP_PUBLIC_BASE_URL') ? trim((string) CLGP_PUBLIC_BASE_URL) : '';
+    if ($configured !== '') {
+        return rtrim($configured, '/');
+    }
+
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ((int) ($_SERVER['SERVER_PORT'] ?? 0) === 443)
+        || (strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
+    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host !== '') {
+        return ($https ? 'https' : 'http') . '://' . $host . rtrim(clgp_web_base(), '/');
+    }
+
+    return 'https://vms.nuvoco.in/vms/clgp';
+}
+
+/** Absolute login URL for emails / deep links. */
+function clgp_login_page_url(): string
+{
+    return clgp_public_base_url() . '/login.php';
+}
+
+/** Clickable portal CTA block appended to every CLGP email. */
+function clgp_mail_portal_cta_html(): string
+{
+    $url = clgp_login_page_url();
+    $safe = htmlspecialchars($url);
+    return '<br><br>'
+        . '<p style="margin:16px 0 8px;"><strong>Open CLGP portal:</strong></p>'
+        . '<p style="margin:0 0 12px;">'
+        . '<a href="' . $safe . '" '
+        . 'style="background:#42bb52;color:#ffffff;padding:12px 20px;text-decoration:none;'
+        . 'border-radius:4px;display:inline-block;font-weight:bold;font-family:Arial,sans-serif;font-size:14px;">'
+        . 'Click here to login</a></p>'
+        . '<p style="margin:0;font-size:12px;color:#64748b;">If the button does not work, copy and paste this link into your browser:<br>'
+        . '<a href="' . $safe . '" style="color:#2563eb;word-break:break-all;">' . $safe . '</a></p>';
+}
+
 function clgp_send_mail(string $toEmail, string $toName, string $subject, string $bodyHtml): void
 {
     $toEmail = trim($toEmail);
     if ($toEmail === '' || !clgp_mail_ready()) {
         return;
     }
-    $body = '<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td>'
+    $body = '<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td style="font-family:Arial,sans-serif;font-size:14px;color:#0f172a;line-height:1.5;">'
         . $bodyHtml
-        . '<br><br><em><strong>Note:</strong> System-generated email from '
+        . clgp_mail_portal_cta_html()
+        . '<br><br><em style="color:#64748b;font-size:12px;"><strong>Note:</strong> System-generated email from '
         . htmlspecialchars(CLGP_APP_SHORT)
         . '. Please do not reply.</em></td></tr></table>';
     @sent_email([$toEmail], [$toName !== '' ? $toName : $toEmail], [], [], $subject, $body, null);
@@ -248,13 +301,8 @@ function clgp_send_credentials_email(string $toEmail, string $toName, string $pa
         . 'Your account has been created for <strong>' . htmlspecialchars(CLGP_APP_NAME) . '</strong>.<br><br>'
         . 'Login ID: <strong>' . htmlspecialchars($toEmail) . '</strong><br>'
         . 'Default Password: <strong>' . htmlspecialchars($password) . '</strong><br><br>'
-        . 'Please change your password after first login.';
+        . 'Please use the button below to open the CLGP portal, then change your password after first login.';
     clgp_send_mail($toEmail, $toName, CLGP_APP_SHORT . ' :: Login Credentials', $body);
-}
-
-function clgp_login_page_url(): string
-{
-    return clgp_web_base() . '/login.php';
 }
 
 /** Resolve Approval Matrix assignee for plant/dept/step → [email, name] or null. */
@@ -356,8 +404,7 @@ function clgp_notify_application_created(array $app): void
     $body = 'Dear ' . htmlspecialchars($to['name']) . ',<br><br>'
         . 'A new <strong>Late Coming / Early Going</strong> application has been created and is pending your approval (Supervisor).<br><br>'
         . clgp_application_email_block($app)
-        . '<br>Please sign in to CLGP to action it:<br>'
-        . '<a href="' . htmlspecialchars(clgp_login_page_url()) . '">' . htmlspecialchars(clgp_login_page_url()) . '</a>';
+        . '<br>Please sign in to CLGP to action it.';
     clgp_send_mail($to['email'], $to['name'], $subject, $body);
 }
 
@@ -393,8 +440,7 @@ function clgp_notify_application_action(array $app, string $actorRole, string $a
                 . 'HOD has approved application <strong>' . htmlspecialchars($appNo) . '</strong>. '
                 . 'It is ready to <strong>close at gate</strong> (Security).'
                 . $remarkHtml . '<br><br>'
-                . clgp_application_email_block(array_merge($app, ['status' => 'Approved']))
-                . '<br><a href="' . htmlspecialchars(clgp_login_page_url()) . '">' . htmlspecialchars(clgp_login_page_url()) . '</a>';
+                . clgp_application_email_block(array_merge($app, ['status' => 'Approved']));
             clgp_send_mail($to['email'], $to['name'], $subject, $body);
         }
         return;
@@ -419,8 +465,7 @@ function clgp_notify_application_action(array $app, string $actorRole, string $a
         . htmlspecialchars($actorLabel) . ' and is now pending <strong>'
         . htmlspecialchars(clgp_role_label($nextStep)) . '</strong>.'
         . $remarkHtml . '<br><br>'
-        . clgp_application_email_block(array_merge($app, ['status' => $status]))
-        . '<br><a href="' . htmlspecialchars(clgp_login_page_url()) . '">' . htmlspecialchars(clgp_login_page_url()) . '</a>';
+        . clgp_application_email_block(array_merge($app, ['status' => $status]));
     clgp_send_mail($to['email'], $to['name'], $subject, $body);
 }
 
@@ -458,8 +503,7 @@ function clgp_notify_reactivation_requested(array $contractor): void
             . '<strong>Contractor:</strong> ' . htmlspecialchars($cname) . '<br>'
             . '<strong>Deactivated at:</strong> ' . htmlspecialchars($contractor['deactivated_at'] ?? '—') . '<br>'
             . '<strong>Reason:</strong> ' . htmlspecialchars($contractor['deactivation_reason'] ?? '—') . '<br><br>'
-            . 'Please sign in to CLGP → Reactivation Requests to approve.<br>'
-            . '<a href="' . htmlspecialchars(clgp_login_page_url()) . '">' . htmlspecialchars(clgp_login_page_url()) . '</a>';
+            . 'Please sign in to CLGP → Reactivation Requests to approve.';
         clgp_send_mail($to['email'], $to['name'], $subject, $body);
     }
 }
