@@ -19,7 +19,7 @@ define('CLGP_APP_SHORT', 'CLGP');
  * Must include /clgp with no trailing slash.
  */
 if (!defined('CLGP_PUBLIC_BASE_URL')) {
-    define('CLGP_PUBLIC_BASE_URL', 'https://vms.nuvoco.in/vms/clgp');
+    define('CLGP_PUBLIC_BASE_URL', 'https://vms.nuvoco.in/clgp');
 }
 
 /** Phase 1 roles (no contractor login). */
