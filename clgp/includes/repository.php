@@ -19,8 +19,52 @@ function clgp_esc(string $s): string
 // Auth / users
 // ---------------------------------------------------------------------------
 
+/**
+ * Ensure LIEO-only auth schema (password on tbl_clgp_user; no unique login_id).
+ * Safe to call repeatedly — used so server deploys self-heal without a manual SQL step.
+ */
+function clgp_ensure_lieo_auth_schema(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $db = clgp_db();
+
+    try {
+        $col = $db->query("SHOW COLUMNS FROM tbl_clgp_user LIKE 'password'");
+        if (!$col || $col->num_rows === 0) {
+            $db->query("ALTER TABLE tbl_clgp_user ADD COLUMN `password` VARCHAR(100) NOT NULL DEFAULT '' AFTER `email`");
+        }
+
+        $idx = $db->query("SHOW INDEX FROM tbl_clgp_user WHERE Key_name = 'uk_login_id'");
+        if ($idx && $idx->num_rows > 0) {
+            $db->query('ALTER TABLE tbl_clgp_user DROP INDEX uk_login_id');
+        }
+
+        $loginCol = $db->query("SHOW COLUMNS FROM tbl_clgp_user LIKE 'login_id'");
+        $loginMeta = $loginCol ? $loginCol->fetch_assoc() : null;
+        if ($loginMeta && strtoupper((string) ($loginMeta['Null'] ?? '')) !== 'YES') {
+            $db->query('ALTER TABLE tbl_clgp_user MODIFY login_id INT NULL DEFAULT NULL');
+        }
+
+        $db->query('UPDATE tbl_clgp_user SET login_id = NULL WHERE login_id = 0');
+
+        $emailIdx = $db->query("SHOW INDEX FROM tbl_clgp_user WHERE Key_name = 'uq_clgp_user_email'");
+        if (!$emailIdx || $emailIdx->num_rows === 0) {
+            // Ignore failure if duplicate emails already exist.
+            @$db->query('ALTER TABLE tbl_clgp_user ADD UNIQUE KEY uq_clgp_user_email (email)');
+        }
+    } catch (Throwable $e) {
+        // Do not hard-fail page loads; create/login will surface a clear message.
+        error_log('clgp_ensure_lieo_auth_schema: ' . $e->getMessage());
+    }
+}
+
 function clgp_find_user_by_login(string $email, string $password): ?array
 {
+    clgp_ensure_lieo_auth_schema();
     $db = clgp_db();
     $email = trim($email);
     $stmt = $db->prepare(
@@ -51,6 +95,7 @@ function clgp_find_user_by_login(string $email, string $password): ?array
  */
 function clgp_login_diagnose(string $email, string $password): string
 {
+    clgp_ensure_lieo_auth_schema();
     $db = clgp_db();
     $email = trim($email);
     $stmt = $db->prepare('SELECT status, password FROM tbl_clgp_user WHERE email = ? LIMIT 1');
@@ -89,40 +134,49 @@ function clgp_list_users(): array
 
 function clgp_create_user(array $data, string $plainPassword): array
 {
-    $db = clgp_db();
-    $email = trim($data['email'] ?? '');
-    $name = trim($data['full_name'] ?? '');
-    $role = $data['role'] ?? '';
-    $empCode = trim($data['emp_code'] ?? '');
-    $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
-    $dept = trim($data['department'] ?? '');
+    try {
+        clgp_ensure_lieo_auth_schema();
+        $db = clgp_db();
+        $email = trim($data['email'] ?? '');
+        $name = trim($data['full_name'] ?? '');
+        $role = $data['role'] ?? '';
+        $empCode = trim($data['emp_code'] ?? '');
+        $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
+        $dept = trim($data['department'] ?? '');
 
-    // LIEO login is separate from VMS — uniqueness is only within tbl_clgp_user.
-    $check = $db->prepare("SELECT clgp_user_id FROM tbl_clgp_user WHERE email = ? LIMIT 1");
-    $check->bind_param('s', $email);
-    $check->execute();
-    if ($check->get_result()->num_rows > 0) {
+        // LIEO login is separate from VMS — uniqueness is only within tbl_clgp_user.
+        $check = $db->prepare("SELECT clgp_user_id FROM tbl_clgp_user WHERE email = ? LIMIT 1");
+        $check->bind_param('s', $email);
+        $check->execute();
+        if ($check->get_result()->num_rows > 0) {
+            $check->close();
+            return ['ok' => false, 'message' => 'LIEO login email already exists.'];
+        }
         $check->close();
-        return ['ok' => false, 'message' => 'LIEO login email already exists.'];
-    }
-    $check->close();
 
-    $createdBy = (int) ($_SESSION['clgp_user_id'] ?? 0);
-    // login_id is legacy/unused — LIEO auth uses tbl_clgp_user.password only.
-    $stmt2 = $db->prepare(
-        "INSERT INTO tbl_clgp_user
-         (login_id, full_name, email, password, role, emp_code, plant, department, must_change_password, status, created_by)
-         VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, 't', 'Active', ?)"
-    );
-    $stmt2->bind_param('sssssssi', $name, $email, $plainPassword, $role, $empCode, $plant, $dept, $createdBy);
-    if (!$stmt2->execute()) {
-        $err = $stmt2->error;
+        $createdBy = (int) ($_SESSION['clgp_user_id'] ?? 0);
+        // login_id is legacy/unused — LIEO auth uses tbl_clgp_user.password only.
+        $stmt2 = $db->prepare(
+            "INSERT INTO tbl_clgp_user
+             (login_id, full_name, email, password, role, emp_code, plant, department, must_change_password, status, created_by)
+             VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, 't', 'Active', ?)"
+        );
+        if (!$stmt2) {
+            return ['ok' => false, 'message' => 'User prepare failed: ' . $db->error];
+        }
+        $stmt2->bind_param('sssssssi', $name, $email, $plainPassword, $role, $empCode, $plant, $dept, $createdBy);
+        if (!$stmt2->execute()) {
+            $err = $stmt2->error;
+            $stmt2->close();
+            return ['ok' => false, 'message' => 'User insert failed: ' . $err];
+        }
+        $userId = (int) $stmt2->insert_id;
         $stmt2->close();
-        return ['ok' => false, 'message' => 'User insert failed: ' . $err];
+        return ['ok' => true, 'clgp_user_id' => $userId, 'password' => $plainPassword, 'email' => $email, 'name' => $name];
+    } catch (Throwable $e) {
+        error_log('clgp_create_user: ' . $e->getMessage());
+        return ['ok' => false, 'message' => 'User create failed: ' . $e->getMessage()];
     }
-    $userId = (int) $stmt2->insert_id;
-    $stmt2->close();
-    return ['ok' => true, 'clgp_user_id' => $userId, 'password' => $plainPassword, 'email' => $email, 'name' => $name];
 }
 
 /**
@@ -457,78 +511,84 @@ function clgp_list_matrix(): array
 
 function clgp_save_matrix_rule(array $data, ?int $id = null): array
 {
-    $db = clgp_db();
-    $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
-    $dept = trim($data['department'] ?? '');
-    $step = $data['approval_step'] ?? '';
-    $empCode = trim($data['emp_code'] ?? '');
-    $empName = trim($data['emp_name'] ?? '');
-    $empEmail = trim($data['emp_email'] ?? '');
-    $allowed = ['timeoffice', 'supervisor', 'n1', 'hod', 'security', 'hr'];
-    if (!in_array($step, $allowed, true) || $plant === '' || $empCode === '' || $empName === '') {
-        return ['ok' => false, 'message' => 'Plant, role and employee are required.'];
-    }
-    if (clgp_matrix_needs_department($step) && $dept === '') {
-        return ['ok' => false, 'message' => 'Department is required for this role.'];
-    }
-    if (!clgp_matrix_needs_department($step)) {
-        $dept = 'All';
-    }
-    if ($empEmail === '') {
-        return ['ok' => false, 'message' => 'Employee business email is required (used as login ID).'];
-    }
-    $createdBy = (int) ($_SESSION['clgp_user_id'] ?? 0);
-
-    if ($id) {
-        $stmt = $db->prepare(
-            "UPDATE tbl_clgp_approval_matrix
-             SET plant=?, department=?, approval_step=?, emp_code=?, emp_name=?, emp_email=?, status='Active'
-             WHERE matrix_id=?"
-        );
-        $stmt->bind_param('ssssssi', $plant, $dept, $step, $empCode, $empName, $empEmail, $id);
-    } else {
-        $stmt = $db->prepare(
-            "INSERT INTO tbl_clgp_approval_matrix
-             (plant, department, approval_step, emp_code, emp_name, emp_email, status, created_by)
-             VALUES (?,?,?,?,?,?,'Active',?)
-             ON DUPLICATE KEY UPDATE emp_code=VALUES(emp_code), emp_name=VALUES(emp_name),
-               emp_email=VALUES(emp_email), status='Active', updated_at=NOW()"
-        );
-        $stmt->bind_param('ssssssi', $plant, $dept, $step, $empCode, $empName, $empEmail, $createdBy);
-    }
-    $ok = $stmt->execute();
-    $newId = $id ?: (int) $stmt->insert_id;
-    $err = $stmt->error;
-    $stmt->close();
-    if (!$ok) {
-        return ['ok' => false, 'message' => $err ?: 'Save failed.'];
-    }
-
-    $provision = clgp_provision_matrix_user(
-        $step,
-        $plant,
-        $dept,
-        $empCode,
-        $empName,
-        $empEmail,
-        $id === null
-    );
-    if (!$provision['ok']) {
-        return ['ok' => false, 'message' => 'Rule saved but login setup failed: ' . ($provision['message'] ?? '')];
-    }
-
-    $msg = 'Role assignment saved.';
-    if (($provision['provisioned'] ?? '') === 'created') {
-        $msg .= ' Login created — credentials emailed';
-        if (!empty($provision['password'])) {
-            $msg .= ' (password: ' . $provision['password'] . ')';
+    try {
+        clgp_ensure_lieo_auth_schema();
+        $db = clgp_db();
+        $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
+        $dept = trim($data['department'] ?? '');
+        $step = $data['approval_step'] ?? '';
+        $empCode = trim($data['emp_code'] ?? '');
+        $empName = trim($data['emp_name'] ?? '');
+        $empEmail = trim($data['emp_email'] ?? '');
+        $allowed = ['timeoffice', 'supervisor', 'n1', 'hod', 'security', 'hr'];
+        if (!in_array($step, $allowed, true) || $plant === '' || $empCode === '' || $empName === '') {
+            return ['ok' => false, 'message' => 'Plant, role and employee are required.'];
         }
-        $msg .= '. User must change password on first login.';
-    } elseif (($provision['provisioned'] ?? '') === 'updated') {
-        $msg .= ' Linked user profile updated.';
-    }
+        if (clgp_matrix_needs_department($step) && $dept === '') {
+            return ['ok' => false, 'message' => 'Department is required for this role.'];
+        }
+        if (!clgp_matrix_needs_department($step)) {
+            $dept = 'All';
+        }
+        if ($empEmail === '') {
+            return ['ok' => false, 'message' => 'Employee business email is required (used as login ID).'];
+        }
+        $createdBy = (int) ($_SESSION['clgp_user_id'] ?? 0);
 
-    return ['ok' => true, 'matrix_id' => $newId, 'message' => $msg];
+        if ($id) {
+            $stmt = $db->prepare(
+                "UPDATE tbl_clgp_approval_matrix
+                 SET plant=?, department=?, approval_step=?, emp_code=?, emp_name=?, emp_email=?, status='Active'
+                 WHERE matrix_id=?"
+            );
+            $stmt->bind_param('ssssssi', $plant, $dept, $step, $empCode, $empName, $empEmail, $id);
+        } else {
+            $stmt = $db->prepare(
+                "INSERT INTO tbl_clgp_approval_matrix
+                 (plant, department, approval_step, emp_code, emp_name, emp_email, status, created_by)
+                 VALUES (?,?,?,?,?,?,'Active',?)
+                 ON DUPLICATE KEY UPDATE emp_code=VALUES(emp_code), emp_name=VALUES(emp_name),
+                   emp_email=VALUES(emp_email), status='Active', updated_at=NOW()"
+            );
+            $stmt->bind_param('ssssssi', $plant, $dept, $step, $empCode, $empName, $empEmail, $createdBy);
+        }
+        $ok = $stmt->execute();
+        $newId = $id ?: (int) $stmt->insert_id;
+        $err = $stmt->error;
+        $stmt->close();
+        if (!$ok) {
+            return ['ok' => false, 'message' => $err ?: 'Save failed.'];
+        }
+
+        $provision = clgp_provision_matrix_user(
+            $step,
+            $plant,
+            $dept,
+            $empCode,
+            $empName,
+            $empEmail,
+            $id === null
+        );
+        if (!$provision['ok']) {
+            return ['ok' => false, 'message' => 'Rule saved but login setup failed: ' . ($provision['message'] ?? '')];
+        }
+
+        $msg = 'Role assignment saved.';
+        if (($provision['provisioned'] ?? '') === 'created') {
+            $msg .= ' Login created — credentials emailed';
+            if (!empty($provision['password'])) {
+                $msg .= ' (password: ' . $provision['password'] . ')';
+            }
+            $msg .= '. User must change password on first login.';
+        } elseif (($provision['provisioned'] ?? '') === 'updated') {
+            $msg .= ' Linked user profile updated.';
+        }
+
+        return ['ok' => true, 'matrix_id' => $newId, 'message' => $msg];
+    } catch (Throwable $e) {
+        error_log('clgp_save_matrix_rule: ' . $e->getMessage());
+        return ['ok' => false, 'message' => 'Save failed: ' . $e->getMessage()];
+    }
 }
 
 function clgp_delete_matrix_rule(int $id): bool

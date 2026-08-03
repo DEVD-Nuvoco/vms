@@ -8,20 +8,25 @@ global $CLGP_APPROVAL_STEPS, $CLGP_MATRIX_PLANT_ROLES;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    if ($action === 'add' || $action === 'edit') {
-        $id = $action === 'edit' ? (int) ($_POST['id'] ?? 0) : null;
-        $result = clgp_save_matrix_rule([
-            'plant' => $_POST['plant'] ?? '',
-            'department' => $_POST['department'] ?? '',
-            'approval_step' => $_POST['approval_step'] ?? '',
-            'emp_code' => $_POST['emp_code'] ?? '',
-            'emp_name' => $_POST['emp_name'] ?? '',
-            'emp_email' => $_POST['emp_email'] ?? '',
-        ], $id);
-        $_SESSION['clgp_mess'] = $result['ok'] ? ($result['message'] ?? 'Approval rule saved.') : $result['message'];
-    } elseif ($action === 'delete') {
-        clgp_delete_matrix_rule((int) ($_POST['id'] ?? 0));
-        $_SESSION['clgp_mess'] = 'Rule deactivated.';
+    try {
+        if ($action === 'add' || $action === 'edit') {
+            $id = $action === 'edit' ? (int) ($_POST['id'] ?? 0) : null;
+            $result = clgp_save_matrix_rule([
+                'plant' => $_POST['plant'] ?? '',
+                'department' => $_POST['department'] ?? '',
+                'approval_step' => $_POST['approval_step'] ?? '',
+                'emp_code' => $_POST['emp_code'] ?? '',
+                'emp_name' => $_POST['emp_name'] ?? '',
+                'emp_email' => $_POST['emp_email'] ?? '',
+            ], $id);
+            $_SESSION['clgp_mess'] = $result['ok'] ? ($result['message'] ?? 'Approval rule saved.') : $result['message'];
+        } elseif ($action === 'delete') {
+            clgp_delete_matrix_rule((int) ($_POST['id'] ?? 0));
+            $_SESSION['clgp_mess'] = 'Rule deactivated.';
+        }
+    } catch (Throwable $e) {
+        error_log('approval_matrix POST: ' . $e->getMessage());
+        $_SESSION['clgp_mess'] = 'Save failed: ' . $e->getMessage();
     }
     header('Location: approval_matrix.php');
     exit;
