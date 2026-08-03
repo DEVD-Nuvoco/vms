@@ -23,8 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!$forced && !clgp_find_user_by_login($userEmail, $current)) {
         $error = 'Current password is incorrect.';
     } else {
-        $loginId = (int) ($_SESSION['clgp_login_id'] ?? 0);
-        if ($loginId > 0 && clgp_set_password($loginId, $new, true)) {
+        $userId = (int) ($_SESSION['clgp_user_id'] ?? 0);
+        if ($userId > 0 && clgp_set_password($userId, $new, true)) {
             $_SESSION['clgp_must_change_password'] = false;
             $_SESSION['clgp_mess'] = 'Password updated successfully.';
             $_SESSION['clgp_mess_type'] = 'success';

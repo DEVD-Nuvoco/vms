@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['clgp_user_email'] = $user['email'];
             $_SESSION['clgp_user_name'] = $user['full_name'];
             $_SESSION['clgp_user_id'] = (int) $user['clgp_user_id'];
-            $_SESSION['clgp_login_id'] = (int) $user['login_id'];
+            $_SESSION['clgp_login_id'] = (int) $user['clgp_user_id']; // legacy key; LIEO no longer uses tbl_logindetail
             $_SESSION['clgp_emp_code'] = $user['emp_code'] ?? '';
             $_SESSION['clgp_plant'] = clgp_ams_canonical_plant($user['plant'] ?? '');
             $_SESSION['clgp_department'] = $user['department'] ?? '';

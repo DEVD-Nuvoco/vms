@@ -38,10 +38,9 @@ function clgp_test_set_password_no_force_change(string $email): void
     $email = trim($email);
     $pass = CLGP_TEST_PASSWORD;
     $stmt = $db->prepare(
-        "UPDATE tbl_clgp_user u
-         INNER JOIN tbl_logindetail l ON l.id = u.login_id
-         SET u.must_change_password = 'f', l.userPassword = ?
-         WHERE u.email = ?"
+        "UPDATE tbl_clgp_user
+         SET must_change_password = 'f', password = ?
+         WHERE email = ?"
     );
     $stmt->bind_param('ss', $pass, $email);
     $stmt->execute();

@@ -24,17 +24,16 @@ function clgp_find_user_by_login(string $email, string $password): ?array
     $db = clgp_db();
     $email = trim($email);
     $stmt = $db->prepare(
-        "SELECT u.*, l.id AS login_row_id, l.userPassword, l.activationStatus
-         FROM tbl_clgp_user u
-         INNER JOIN tbl_logindetail l ON l.id = u.login_id
-         WHERE u.email = ? AND u.status = 'Active' AND l.logType = 'C' AND l.activationStatus = 't'
+        "SELECT *
+         FROM tbl_clgp_user
+         WHERE email = ? AND status = 'Active'
          LIMIT 1"
     );
     $stmt->bind_param('s', $email);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
-    if (!$row || $row['userPassword'] !== $password) {
+    if (!$row || (string) ($row['password'] ?? '') !== $password) {
         return null;
     }
     return $row;
@@ -66,36 +65,24 @@ function clgp_create_user(array $data, string $plainPassword): array
     $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
     $dept = trim($data['department'] ?? '');
 
-    $check = $db->prepare("SELECT id FROM tbl_logindetail WHERE userName = ? LIMIT 1");
+    // LIEO login is separate from VMS — uniqueness is only within tbl_clgp_user.
+    $check = $db->prepare("SELECT clgp_user_id FROM tbl_clgp_user WHERE email = ? LIMIT 1");
     $check->bind_param('s', $email);
     $check->execute();
     if ($check->get_result()->num_rows > 0) {
         $check->close();
-        return ['ok' => false, 'message' => 'Login email already exists.'];
+        return ['ok' => false, 'message' => 'LIEO login email already exists.'];
     }
     $check->close();
 
-    $stmt = $db->prepare(
-        "INSERT INTO tbl_logindetail
-         (logType, profilePic, userName, userPassword, lastLogin, activationCode, enCryptUrl, activationStatus, liveStatus, lastLiveDateTime)
-         VALUES ('C', '', ?, ?, NOW(), '', '', 't', 'd', '0000-00-00 00:00:00')"
-    );
-    $stmt->bind_param('ss', $email, $plainPassword);
-    if (!$stmt->execute()) {
-        $err = $stmt->error;
-        $stmt->close();
-        return ['ok' => false, 'message' => 'Login insert failed: ' . $err];
-    }
-    $loginId = (int) $stmt->insert_id;
-    $stmt->close();
-
     $createdBy = (int) ($_SESSION['clgp_user_id'] ?? 0);
+    $loginId = 0; // unused — LIEO does not use tbl_logindetail
     $stmt2 = $db->prepare(
         "INSERT INTO tbl_clgp_user
-         (login_id, full_name, email, role, emp_code, plant, department, must_change_password, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 't', 'Active', ?)"
+         (login_id, full_name, email, password, role, emp_code, plant, department, must_change_password, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 't', 'Active', ?)"
     );
-    $stmt2->bind_param('issssssi', $loginId, $name, $email, $role, $empCode, $plant, $dept, $createdBy);
+    $stmt2->bind_param('isssssssi', $loginId, $name, $email, $plainPassword, $role, $empCode, $plant, $dept, $createdBy);
     if (!$stmt2->execute()) {
         $err = $stmt2->error;
         $stmt2->close();
@@ -106,19 +93,28 @@ function clgp_create_user(array $data, string $plainPassword): array
     return ['ok' => true, 'clgp_user_id' => $userId, 'password' => $plainPassword, 'email' => $email, 'name' => $name];
 }
 
-function clgp_set_password(int $loginId, string $newPassword, bool $clearMustChange = true): bool
+/**
+ * Update LIEO password by clgp_user_id (not VMS login_id).
+ */
+function clgp_set_password(int $clgpUserId, string $newPassword, bool $clearMustChange = true): bool
 {
     $db = clgp_db();
-    $stmt = $db->prepare("UPDATE tbl_logindetail SET userPassword = ? WHERE id = ?");
-    $stmt->bind_param('si', $newPassword, $loginId);
+    if ($clearMustChange) {
+        $stmt = $db->prepare(
+            "UPDATE tbl_clgp_user
+             SET password = ?, must_change_password = 'f'
+             WHERE clgp_user_id = ?"
+        );
+    } else {
+        $stmt = $db->prepare(
+            "UPDATE tbl_clgp_user
+             SET password = ?
+             WHERE clgp_user_id = ?"
+        );
+    }
+    $stmt->bind_param('si', $newPassword, $clgpUserId);
     $ok = $stmt->execute();
     $stmt->close();
-    if ($ok && $clearMustChange) {
-        $stmt2 = $db->prepare("UPDATE tbl_clgp_user SET must_change_password = 'f' WHERE login_id = ?");
-        $stmt2->bind_param('i', $loginId);
-        $stmt2->execute();
-        $stmt2->close();
-    }
     return $ok;
 }
 
