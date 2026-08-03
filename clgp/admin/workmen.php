@@ -4,7 +4,7 @@ clgp_require_role(['admin']);
 
 $pageTitle = 'Workmen';
 $activeNav = 'workmen';
-global $CLGP_PLANTS, $CLGP_DEPARTMENTS, $CLGP_SHIFTS;
+global $CLGP_SHIFTS;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
     $result = clgp_save_workman($_POST);
@@ -26,7 +26,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="card shadow-sm">
             <div class="card-header bg-white font-weight-bold">Add Workman</div>
             <div class="card-body">
-                <form method="post">
+                <form method="post" id="workmanForm" autocomplete="off">
                     <input type="hidden" name="action" value="add">
                     <div class="form-group">
                         <label>Workman ID Code *</label>
@@ -46,15 +46,15 @@ require_once __DIR__ . '/../includes/header.php';
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Plant *</label>
-                        <select name="plant" class="form-control" required>
-                            <?php foreach ($CLGP_PLANTS as $pl): ?><option><?= htmlspecialchars($pl) ?></option><?php endforeach; ?>
-                        </select>
+                        <label>Plant * <small class="text-muted">(search AMS)</small></label>
+                        <input type="text" id="plantSearch" class="form-control" placeholder="Type plant e.g. RCP" autocomplete="off" required>
+                        <input type="hidden" name="plant" id="plant" value="" required>
+                        <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
                     </div>
                     <div class="form-group">
                         <label>Department *</label>
-                        <select name="department" class="form-control" required>
-                            <?php foreach ($CLGP_DEPARTMENTS as $d): ?><option><?= htmlspecialchars($d) ?></option><?php endforeach; ?>
+                        <select name="department" id="department" class="form-control" required disabled>
+                            <option value="">— Select plant first —</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -93,5 +93,99 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    var plantTimer = null;
+    var $plantSearch = document.getElementById('plantSearch');
+    var $plant = document.getElementById('plant');
+    var $plantBox = document.getElementById('plantResults');
+    var $dept = document.getElementById('department');
+
+    function resetDepartments(placeholder) {
+        $dept.innerHTML = '';
+        var opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = placeholder || '— Select plant first —';
+        $dept.appendChild(opt);
+        $dept.disabled = true;
+    }
+
+    function loadDepartments(plant) {
+        resetDepartments('Loading…');
+        if (!plant) {
+            resetDepartments('— Select plant first —');
+            return;
+        }
+        fetch('../api/ams_lookup.php?type=departments&plant=' + encodeURIComponent(plant))
+            .then(function (r) { return r.json(); })
+            .then(function (rows) {
+                $dept.innerHTML = '<option value="">— Select department —</option>';
+                (rows || []).forEach(function (d) {
+                    var opt = document.createElement('option');
+                    opt.value = d;
+                    opt.textContent = d;
+                    $dept.appendChild(opt);
+                });
+                $dept.disabled = false;
+            })
+            .catch(function () {
+                resetDepartments('Failed to load');
+            });
+    }
+
+    $plantSearch.addEventListener('input', function () {
+        clearTimeout(plantTimer);
+        $plant.value = '';
+        resetDepartments('— Select plant first —');
+        var v = this.value.trim();
+        plantTimer = setTimeout(function () {
+            var url = '../api/ams_lookup.php?type=plants' + (v ? '&q=' + encodeURIComponent(v) : '');
+            fetch(url)
+                .then(function (r) { return r.json(); })
+                .then(function (rows) {
+                    $plantBox.innerHTML = '';
+                    if (!rows.length) {
+                        $plantBox.innerHTML = '<div class="list-group-item small text-muted">No plants found</div>';
+                    } else {
+                        rows.forEach(function (p) {
+                            var btn = document.createElement('button');
+                            btn.type = 'button';
+                            btn.className = 'list-group-item list-group-item-action small';
+                            btn.textContent = p;
+                            btn.addEventListener('click', function () {
+                                $plantSearch.value = p;
+                                $plant.value = p;
+                                $plantBox.style.display = 'none';
+                                loadDepartments(p);
+                            });
+                            $plantBox.appendChild(btn);
+                        });
+                    }
+                    $plantBox.style.display = 'block';
+                });
+        }, 250);
+    });
+
+    $plantSearch.addEventListener('focus', function () {
+        if (!$plant.value) {
+            $plantSearch.dispatchEvent(new Event('input'));
+        }
+    });
+
+    document.addEventListener('click', function (ev) {
+        if (!$plantBox.contains(ev.target) && ev.target !== $plantSearch) {
+            $plantBox.style.display = 'none';
+        }
+    });
+
+    document.getElementById('workmanForm').addEventListener('submit', function (ev) {
+        if (!$plant.value || !$dept.value) {
+            ev.preventDefault();
+            alert('Please select Plant and Department from the AMS lists.');
+        }
+    });
+})();
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

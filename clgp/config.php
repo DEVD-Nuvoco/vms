@@ -305,14 +305,20 @@ function clgp_send_mail(string $toEmail, string $toName, string $subject, string
     @sent_email([$toEmail], [$toName !== '' ? $toName : $toEmail], [], [], $subject, $body, null);
 }
 
-function clgp_send_credentials_email(string $toEmail, string $toName, string $password): void
+function clgp_send_credentials_email(string $toEmail, string $toName, string $password, bool $isResend = false): void
 {
+    $intro = $isResend
+        ? 'Your login credentials for <strong>' . htmlspecialchars(CLGP_APP_NAME) . ' (' . htmlspecialchars(CLGP_APP_SHORT) . ')</strong> have been resent.'
+        : 'Your account has been created for <strong>' . htmlspecialchars(CLGP_APP_NAME) . ' (' . htmlspecialchars(CLGP_APP_SHORT) . ')</strong>.';
+    $subject = $isResend
+        ? (CLGP_APP_SHORT . ' :: Login Credentials (Resent)')
+        : (CLGP_APP_SHORT . ' :: Login Credentials');
     $body = 'Dear ' . htmlspecialchars($toName) . ',<br><br>'
-        . 'Your account has been created for <strong>' . htmlspecialchars(CLGP_APP_NAME) . ' (' . htmlspecialchars(CLGP_APP_SHORT) . ')</strong>.<br><br>'
+        . $intro . '<br><br>'
         . 'Login ID: <strong>' . htmlspecialchars($toEmail) . '</strong><br>'
-        . 'Default Password: <strong>' . htmlspecialchars($password) . '</strong><br><br>'
+        . 'Temporary Password: <strong>' . htmlspecialchars($password) . '</strong><br><br>'
         . 'Please use the button below to open the LIEO portal, then change your password after first login.';
-    clgp_send_mail($toEmail, $toName, CLGP_APP_SHORT . ' :: Login Credentials', $body);
+    clgp_send_mail($toEmail, $toName, $subject, $body);
 }
 
 /** Resolve Approval Matrix assignee for plant/dept/step → [email, name] or null. */

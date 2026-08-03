@@ -23,12 +23,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'delete') {
             clgp_delete_matrix_rule((int) ($_POST['id'] ?? 0));
             $_SESSION['clgp_mess'] = 'Rule deactivated.';
+        } elseif ($action === 'resend') {
+            $result = clgp_resend_matrix_credentials((int) ($_POST['id'] ?? 0));
+            $_SESSION['clgp_mess'] = $result['message'] ?? ($result['ok'] ? 'Credentials resent.' : 'Resend failed.');
         }
     } catch (Throwable $e) {
         error_log('approval_matrix POST: ' . $e->getMessage());
         $_SESSION['clgp_mess'] = 'Save failed: ' . $e->getMessage();
     }
-    header('Location: approval_matrix.php');
+    $redir = 'approval_matrix.php';
+    $vp = trim((string) ($_POST['view_plant'] ?? $_GET['plant'] ?? ''));
+    if ($vp !== '') {
+        $redir .= '?plant=' . rawurlencode($vp);
+    }
+    header('Location: ' . $redir);
     exit;
 }
 
@@ -181,6 +189,11 @@ require_once __DIR__ . '/../includes/header.php';
                     </thead>
                     <tbody>
                         <?php foreach ($matrixRows as $row): ?>
+                        <?php
+                            $canResend = !empty($row['clgp_user_id'])
+                                && ($row['user_status'] ?? '') === 'Active'
+                                && ($row['must_change_password'] ?? 'f') === 't';
+                        ?>
                         <tr>
                             <td class="font-weight-bold"><?= htmlspecialchars($row['plant']) ?></td>
                             <td><?= htmlspecialchars($row['department'] === 'All' ? 'All departments' : $row['department']) ?></td>
@@ -190,9 +203,18 @@ require_once __DIR__ . '/../includes/header.php';
                             <td><?= htmlspecialchars($row['emp_email']) ?></td>
                             <td class="text-nowrap">
                                 <a href="?edit=<?= (int)$row['matrix_id'] ?><?= $viewPlant ? '&plant=' . urlencode($viewPlant) : '' ?>" class="btn btn-sm btn-outline-primary">Edit</a>
-                                <form method="post" class="d-inline" onsubmit="return confirm('Remove this assignment?')">
+                                <?php if ($canResend): ?>
+                                <form method="post" class="d-inline" onsubmit="return confirm('Resend login credentials email to <?= htmlspecialchars($row['emp_email'], ENT_QUOTES) ?>?')">
+                                    <input type="hidden" name="action" value="resend">
+                                    <input type="hidden" name="id" value="<?= (int)$row['matrix_id'] ?>">
+                                    <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
+                                    <button type="submit" class="btn btn-sm btn-outline-success" title="Resend credentials email">Resend</button>
+                                </form>
+                                <?php endif; ?>
+                                <form method="post" class="d-inline" onsubmit="return confirm('Remove this User?')">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="id" value="<?= (int)$row['matrix_id'] ?>">
+                                    <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
                                     <button class="btn btn-sm btn-outline-danger">×</button>
                                 </form>
                             </td>

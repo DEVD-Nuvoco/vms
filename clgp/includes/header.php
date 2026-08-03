@@ -431,7 +431,7 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
         <div class="d-flex align-items-center clgp-brand-block">
             <img src="<?= $clgpAssets ?>images/nuvoco-ori.png" width="56" height="auto" alt="Nuvoco" class="mr-3 flex-shrink-0">
             <div class="min-width-0">
-                <div class="clgp-brand-short" title="<?= htmlspecialchars(CLGP_APP_NAME) ?>"><?= htmlspecialchars(CLGP_APP_SHORT) ?></div>
+                <div class="clgp-brand-short" title="<?= htmlspecialchars(CLGP_APP_NAME) ?>"><?= htmlspecialchars(CLGP_APP_NAME) ." - ". htmlspecialchars(CLGP_APP_SHORT) ?></div>
                 <div class="clgp-brand-page"><?= htmlspecialchars($pageTitle) ?></div>
             </div>
         </div>

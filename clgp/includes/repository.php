@@ -503,10 +503,75 @@ function clgp_save_workman(array $data, ?int $id = null): array
 
 function clgp_list_matrix(): array
 {
+    clgp_ensure_lieo_auth_schema();
     $res = clgp_db()->query(
-        "SELECT * FROM tbl_clgp_approval_matrix WHERE status='Active' ORDER BY plant, department, approval_step"
+        "SELECT m.*,
+                u.clgp_user_id,
+                u.must_change_password,
+                u.status AS user_status
+         FROM tbl_clgp_approval_matrix m
+         LEFT JOIN tbl_clgp_user u ON u.email = m.emp_email
+         WHERE m.status = 'Active'
+         ORDER BY m.plant, m.department, m.approval_step"
     );
     return $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+/**
+ * Resend LIEO credentials email for a matrix assignment.
+ * Only allowed while the linked user has not changed their first password yet.
+ */
+function clgp_resend_matrix_credentials(int $matrixId): array
+{
+    clgp_ensure_lieo_auth_schema();
+    $db = clgp_db();
+    $stmt = $db->prepare(
+        "SELECT m.*, u.clgp_user_id, u.must_change_password, u.status AS user_status
+         FROM tbl_clgp_approval_matrix m
+         LEFT JOIN tbl_clgp_user u ON u.email = m.emp_email
+         WHERE m.matrix_id = ? AND m.status = 'Active'
+         LIMIT 1"
+    );
+    $stmt->bind_param('i', $matrixId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row) {
+        return ['ok' => false, 'message' => 'Assignment not found.'];
+    }
+    $email = trim($row['emp_email'] ?? '');
+    $name = trim($row['emp_name'] ?? '');
+    if ($email === '') {
+        return ['ok' => false, 'message' => 'No email on this assignment.'];
+    }
+    if (empty($row['clgp_user_id'])) {
+        return ['ok' => false, 'message' => 'No LIEO login linked. Save the assignment again to create login.'];
+    }
+    if (($row['user_status'] ?? '') !== 'Active') {
+        return ['ok' => false, 'message' => 'LIEO account is inactive.'];
+    }
+    if (($row['must_change_password'] ?? 'f') !== 't') {
+        return ['ok' => false, 'message' => 'Password already changed — credentials cannot be resent.'];
+    }
+
+    $uid = (int) $row['clgp_user_id'];
+    $pass = clgp_generate_password();
+    if (!clgp_set_password($uid, $pass, false)) {
+        return ['ok' => false, 'message' => 'Could not reset temporary password.'];
+    }
+    $must = $db->prepare("UPDATE tbl_clgp_user SET must_change_password = 't' WHERE clgp_user_id = ?");
+    $must->bind_param('i', $uid);
+    $must->execute();
+    $must->close();
+
+    clgp_send_credentials_email($email, $name !== '' ? $name : $email, $pass, true);
+    return [
+        'ok' => true,
+        'message' => 'Credentials resent to ' . $email . ' (password: ' . $pass . ').',
+        'password' => $pass,
+        'email' => $email,
+    ];
 }
 
 function clgp_save_matrix_rule(array $data, ?int $id = null): array
