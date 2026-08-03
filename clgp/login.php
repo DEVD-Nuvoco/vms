@@ -31,7 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $user = clgp_find_user_by_login($email, $password);
         if (!$user) {
-            $error = 'Invalid credentials or inactive account.';
+            $why = clgp_login_diagnose($email, $password);
+            if ($why === 'missing') {
+                $error = 'No LIEO account for this email. Assign the user in Approval Matrix first.';
+            } elseif ($why === 'inactive') {
+                $error = 'This LIEO account is inactive. Ask Admin to reactivate it.';
+            } else {
+                $error = 'Invalid LIEO password. Use the password emailed when the role was assigned (not your VMS password).';
+            }
         } else {
             $_SESSION['clgp_role'] = $user['role'];
             $_SESSION['clgp_user_email'] = $user['email'];
@@ -92,7 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" name="password" class="form-control" required value="">
+                    <input type="password" name="password" class="form-control" required autocomplete="current-password">
+                    <small class="text-muted">LIEO password is separate from VMS. Use the password from the credentials email.</small>
                 </div>
                 <button type="submit" class="btn btn-clgp btn-block">Sign In</button>
             </form>

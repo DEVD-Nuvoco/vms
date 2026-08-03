@@ -26,17 +26,49 @@ function clgp_find_user_by_login(string $email, string $password): ?array
     $stmt = $db->prepare(
         "SELECT *
          FROM tbl_clgp_user
-         WHERE email = ? AND status = 'Active'
+         WHERE email = ?
          LIMIT 1"
     );
     $stmt->bind_param('s', $email);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
-    if (!$row || (string) ($row['password'] ?? '') !== $password) {
+    if (!$row) {
+        return null;
+    }
+    if (($row['status'] ?? '') !== 'Active') {
+        return null;
+    }
+    if ((string) ($row['password'] ?? '') === '' || (string) ($row['password'] ?? '') !== $password) {
         return null;
     }
     return $row;
+}
+
+/**
+ * Diagnose login failure without revealing too much in UI by default.
+ * @return 'missing'|'inactive'|'bad_password'|'ok'
+ */
+function clgp_login_diagnose(string $email, string $password): string
+{
+    $db = clgp_db();
+    $email = trim($email);
+    $stmt = $db->prepare('SELECT status, password FROM tbl_clgp_user WHERE email = ? LIMIT 1');
+    $stmt->bind_param('s', $email);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$row) {
+        return 'missing';
+    }
+    if (($row['status'] ?? '') !== 'Active') {
+        return 'inactive';
+    }
+    $stored = (string) ($row['password'] ?? '');
+    if ($stored === '' || $stored !== $password) {
+        return 'bad_password';
+    }
+    return 'ok';
 }
 
 function clgp_get_user(int $clgpUserId): ?array
@@ -76,13 +108,13 @@ function clgp_create_user(array $data, string $plainPassword): array
     $check->close();
 
     $createdBy = (int) ($_SESSION['clgp_user_id'] ?? 0);
-    $loginId = 0; // unused — LIEO does not use tbl_logindetail
+    // login_id is legacy/unused — LIEO auth uses tbl_clgp_user.password only.
     $stmt2 = $db->prepare(
         "INSERT INTO tbl_clgp_user
          (login_id, full_name, email, password, role, emp_code, plant, department, must_change_password, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 't', 'Active', ?)"
+         VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, 't', 'Active', ?)"
     );
-    $stmt2->bind_param('isssssssi', $loginId, $name, $email, $plainPassword, $role, $empCode, $plant, $dept, $createdBy);
+    $stmt2->bind_param('sssssssi', $name, $email, $plainPassword, $role, $empCode, $plant, $dept, $createdBy);
     if (!$stmt2->execute()) {
         $err = $stmt2->error;
         $stmt2->close();
@@ -159,18 +191,42 @@ function clgp_provision_matrix_user(
         if ($existing['role'] !== $role) {
             return ['ok' => false, 'message' => 'Email already used for role ' . clgp_role_label($existing['role']) . '.'];
         }
+        $uid = (int) $existing['clgp_user_id'];
         $stmt = clgp_db()->prepare(
             "UPDATE tbl_clgp_user
              SET full_name=?, emp_code=?, plant=?, department=?, status='Active'
              WHERE clgp_user_id=?"
         );
-        $uid = (int) $existing['clgp_user_id'];
         $stmt->bind_param('ssssi', $empName, $empCode, $plant, $department, $uid);
         $ok = $stmt->execute();
         $stmt->close();
-        return $ok
-            ? ['ok' => true, 'provisioned' => 'updated', 'email' => $empEmail]
-            : ['ok' => false, 'message' => 'Could not update user profile.'];
+        if (!$ok) {
+            return ['ok' => false, 'message' => 'Could not update user profile.'];
+        }
+
+        // If LIEO password was never set, create one now (separate from VMS).
+        if (trim((string) ($existing['password'] ?? '')) === '') {
+            if (!$sendCredentials) {
+                return ['ok' => false, 'message' => 'User exists but has no LIEO password.'];
+            }
+            $pass = clgp_generate_password();
+            if (!clgp_set_password($uid, $pass, false)) {
+                return ['ok' => false, 'message' => 'Could not set LIEO password.'];
+            }
+            $must = clgp_db()->prepare("UPDATE tbl_clgp_user SET must_change_password = 't' WHERE clgp_user_id = ?");
+            $must->bind_param('i', $uid);
+            $must->execute();
+            $must->close();
+            clgp_send_credentials_email($empEmail, $empName, $pass);
+            return [
+                'ok' => true,
+                'provisioned' => 'created',
+                'email' => $empEmail,
+                'password' => $pass,
+            ];
+        }
+
+        return ['ok' => true, 'provisioned' => 'updated', 'email' => $empEmail];
     }
 
     if (!$sendCredentials) {
