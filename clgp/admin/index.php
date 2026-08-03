@@ -107,10 +107,9 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="card-header bg-white font-weight-bold">Approval Flow</div>
             <div class="card-body small">
                 <ol class="mb-0 pl-3">
-                    <li>Time Office creates Late Coming / Early Going</li>
+                    <li>Time Office creates Late IN / Early Out</li>
                     <li>Supervisor → N-1 → HOD</li>
-                    <li>Security closes at gate</li>
-                    <li>Security executes gate IN / OUT</li>
+                    <li>Security closes at gate (IN / OUT)</li>
                 </ol>
             </div>
         </div>
@@ -130,7 +129,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <?php foreach ($recent as $a): ?>
                 <tr>
                     <td><?= htmlspecialchars($a['application_no']) ?></td>
-                    <td><?= htmlspecialchars($a['application_type']) ?></td>
+                    <td><?= htmlspecialchars(clgp_application_type_label($a['application_type'] ?? '')) ?></td>
                     <td><?= htmlspecialchars($a['workman_name']) ?></td>
                     <td><?= htmlspecialchars($a['plant']) ?></td>
                     <td><?= htmlspecialchars($a['application_date']) ?></td>

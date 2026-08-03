@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['clgp_user_id'] = (int) $user['clgp_user_id'];
             $_SESSION['clgp_login_id'] = (int) $user['login_id'];
             $_SESSION['clgp_emp_code'] = $user['emp_code'] ?? '';
-            $_SESSION['clgp_plant'] = $user['plant'] ?? '';
+            $_SESSION['clgp_plant'] = clgp_ams_canonical_plant($user['plant'] ?? '');
             $_SESSION['clgp_department'] = $user['department'] ?? '';
             $_SESSION['clgp_must_change_password'] = ($user['must_change_password'] ?? 'f') === 't';
             if ($_SESSION['clgp_must_change_password']) {
@@ -75,9 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="card-body p-4">
             <div class="text-center mb-4">
                 <img src="../images/nuvoco-ori.png" width="100" alt="Nuvoco">
-                <h4 class="mt-3 clgp-brand"><?= htmlspecialchars(CLGP_APP_NAME) ?></h4>
-                <h6 class="mt-3">Late Coming / Early Going</h5>
-                <p class="text-muted small mt-2 mb-0">Workman access control</p>
+                <h4 class="mt-3 clgp-brand">Access control for Contract Workman Entry/Exit Pass</h4>
+                <h6 class="mt-3"><?= htmlspecialchars(CLGP_APP_NAME) ?></h6>
+                <p class="text-muted small mt-2 mb-0">Workman Late IN / Early Out access control</p>
             </div>
 
             <?php if ($error): ?>

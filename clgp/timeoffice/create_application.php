@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<h2 class="clgp-title mb-2">Create Late Coming / Early Going</h2>
+<h2 class="clgp-title mb-2">Create Late IN / Early Out</h2>
 <p class="text-muted mb-4">Create request on workman’s behalf. Approval: Supervisor → N-1 → HOD, then Security closes at gate.</p>
 
 <div class="card shadow-sm" style="max-width:640px;">
@@ -78,8 +78,8 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="form-group">
                 <label>Application Type *</label>
                 <select name="application_type" class="form-control" required>
-                    <option value="Late Coming">Late Coming (IN / Entry)</option>
-                    <option value="Early Going">Early Going (OUT / Exit)</option>
+                    <option value="Late Coming">Late IN (Entry)</option>
+                    <option value="Early Going">Early Out (Exit)</option>
                 </select>
             </div>
             <div class="form-group">

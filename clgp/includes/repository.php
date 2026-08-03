@@ -63,7 +63,7 @@ function clgp_create_user(array $data, string $plainPassword): array
     $name = trim($data['full_name'] ?? '');
     $role = $data['role'] ?? '';
     $empCode = trim($data['emp_code'] ?? '');
-    $plant = trim($data['plant'] ?? '');
+    $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
     $dept = trim($data['department'] ?? '');
 
     $check = $db->prepare("SELECT id FROM tbl_logindetail WHERE userName = ? LIMIT 1");
@@ -151,7 +151,7 @@ function clgp_provision_matrix_user(
     $empEmail = trim($empEmail);
     $empName = trim($empName);
     $empCode = trim($empCode);
-    $plant = trim($plant);
+    $plant = clgp_ams_canonical_plant($plant);
     $department = trim($department);
 
     if ($empEmail === '' || $empName === '' || $empCode === '') {
@@ -366,7 +366,7 @@ function clgp_save_workman(array $data, ?int $id = null): array
     $code = trim($data['workman_code'] ?? '');
     $name = trim($data['workman_name'] ?? '');
     $cid = (int) ($data['contractor_id'] ?? 0);
-    $plant = trim($data['plant'] ?? '');
+    $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
     $dept = trim($data['department'] ?? '');
     $shift = trim($data['shift'] ?? '');
     if ($code === '' || $name === '' || $cid < 1 || $plant === '' || $dept === '') {
@@ -406,7 +406,7 @@ function clgp_list_matrix(): array
 function clgp_save_matrix_rule(array $data, ?int $id = null): array
 {
     $db = clgp_db();
-    $plant = trim($data['plant'] ?? '');
+    $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
     $dept = trim($data['department'] ?? '');
     $step = $data['approval_step'] ?? '';
     $empCode = trim($data['emp_code'] ?? '');
@@ -490,12 +490,14 @@ function clgp_delete_matrix_rule(int $id): bool
 
 function clgp_get_matrix_approver(string $plant, string $dept, string $step): ?array
 {
+    $plant = clgp_ams_canonical_plant($plant);
     if (!clgp_matrix_needs_department($step)) {
         $dept = 'All';
     }
+    $canon = clgp_sql_canonical_plant('plant');
     $stmt = clgp_db()->prepare(
         "SELECT * FROM tbl_clgp_approval_matrix
-         WHERE plant=? AND department=? AND approval_step=? AND status='Active' LIMIT 1"
+         WHERE $canon = ? AND department=? AND approval_step=? AND status='Active' LIMIT 1"
     );
     $stmt->bind_param('sss', $plant, $dept, $step);
     $stmt->execute();
@@ -508,7 +510,10 @@ function clgp_list_matrix_by_plant(): array
 {
     $grouped = [];
     foreach (clgp_list_matrix() as $row) {
-        $plant = $row['plant'];
+        $plant = clgp_ams_canonical_plant($row['plant'] ?? '');
+        if ($plant === '') {
+            continue;
+        }
         if (!isset($grouped[$plant])) {
             $grouped[$plant] = [];
         }
@@ -524,24 +529,68 @@ function clgp_apply_session_plant_scope(array $filters): array
     if ($role === 'admin') {
         return $filters;
     }
-    $plant = trim($_SESSION['clgp_plant'] ?? '');
+    $plant = clgp_ams_canonical_plant($_SESSION['clgp_plant'] ?? '');
     if ($plant !== '' && in_array($role, ['timeoffice', 'security', 'supervisor', 'n1', 'hod', 'hr'], true)) {
         $filters['plant'] = $plant;
     }
     return $filters;
 }
 
-/** Cement product line filter for AMS lookups (Approval Matrix / users). */
+/**
+ * AMS employee master used by Approval Matrix.
+ * Prefer live AMS table — tbl_nuvo_employee_clgp remaps Department incorrectly
+ * (e.g. Information Management → Infrastructure).
+ */
+function clgp_ams_employee_table(): string
+{
+    return 'tbl_nuvo_employee';
+}
+
+/**
+ * Product lines allowed in LIEO AMS lookup (Cement family + Nu Vista).
+ */
+function clgp_ams_product_line_sql(string $alias = ''): string
+{
+    $col = ($alias !== '' ? $alias . '.' : '') . 'empProductLine';
+    return "($col LIKE '%Cement%' OR $col LIKE '%Nu Vista%')";
+}
+
+/** @deprecated Prefer clgp_ams_product_line_sql(); kept for older callers. */
 function clgp_ams_product_line(): string
 {
     return '70000000-Cement';
 }
 
 /**
- * Short plant code from empWorkLocation, e.g. "77000003-JCP" → "JCP".
- * Uses everything after the first hyphen.
+ * Canonical plant code for LIEO.
+ * Collapses AMS variants to one plant, e.g.:
+ *   "87000003-NVL-C-RCP", "NVCL_RCP", "NVL-C-RCP", "RCP" → "RCP"
+ *   "77000099-Mumbai" → "Mumbai"
+ * Uses the last token after "-" or "_".
+ */
+function clgp_ams_canonical_plant(?string $plantOrLocation): string
+{
+    $value = trim((string) $plantOrLocation);
+    if ($value === '') {
+        return '';
+    }
+    $normalized = str_replace('_', '-', $value);
+    $pos = strrpos($normalized, '-');
+    return $pos === false ? $normalized : substr($normalized, $pos + 1);
+}
+
+/**
+ * @deprecated Prefer clgp_ams_canonical_plant()
  */
 function clgp_ams_plant_short(?string $workLocation): string
+{
+    return clgp_ams_canonical_plant($workLocation);
+}
+
+/**
+ * Full AMS plant token after first hyphen (kept for legacy callers; not used in plant list).
+ */
+function clgp_ams_plant_full_short(?string $workLocation): string
 {
     $workLocation = trim((string) $workLocation);
     if ($workLocation === '') {
@@ -552,71 +601,93 @@ function clgp_ams_plant_short(?string $workLocation): string
 }
 
 /**
- * Distinct plants from AMS (Cement only), optional search on short plant code.
+ * SQL: match selected plant code against AMS work location last token.
+ * Binds the plant parameter once (canonical short code, e.g. RCP).
+ */
+function clgp_ams_plant_match_sql(string $alias = ''): string
+{
+    $col = ($alias !== '' ? $alias . '.' : '') . 'empWorkLocation';
+    return "SUBSTRING_INDEX(REPLACE($col, '_', '-'), '-', -1) = ?";
+}
+
+/**
+ * SQL expression that returns the canonical plant short code for a stored plant column.
+ */
+function clgp_sql_canonical_plant(string $column = 'plant'): string
+{
+    return "SUBSTRING_INDEX(REPLACE($column, '_', '-'), '-', -1)";
+}
+
+function clgp_ams_bind_plant(string &$types, array &$params, string $plant): void
+{
+    $types .= 's';
+    $params[] = clgp_ams_canonical_plant($plant);
+}
+
+/**
+ * Distinct plants from AMS as canonical short codes only (one plant = one code).
  * @return list<string>
  */
 function clgp_list_ams_plants(?string $q = null): array
 {
     $db = clgp_db();
-    $product = clgp_ams_product_line();
-    $stmt = $db->prepare(
-        "SELECT DISTINCT empWorkLocation
-         FROM tbl_nuvo_employee_clgp
-         WHERE empStatus = 'Active'
-           AND empProductLine = ?
-           AND empWorkLocation IS NOT NULL
-           AND empWorkLocation != ''
-           AND empWorkLocation LIKE '%-%'"
-    );
-    if (!$stmt) {
+    $table = clgp_ams_employee_table();
+    $productSql = clgp_ams_product_line_sql();
+    $sql = "SELECT DISTINCT empWorkLocation
+            FROM `$table`
+            WHERE empStatus = 'Active'
+              AND $productSql
+              AND empWorkLocation IS NOT NULL
+              AND empWorkLocation != ''";
+    $res = $db->query($sql);
+    if (!$res) {
         return [];
     }
-    $stmt->bind_param('s', $product);
-    $stmt->execute();
-    $res = $stmt->get_result();
     $plants = [];
     $qNorm = $q !== null ? strtolower(trim($q)) : '';
     while ($row = $res->fetch_assoc()) {
-        $short = clgp_ams_plant_short($row['empWorkLocation'] ?? '');
-        if ($short === '') {
+        $code = clgp_ams_canonical_plant($row['empWorkLocation'] ?? '');
+        if ($code === '') {
             continue;
         }
-        if ($qNorm !== '' && strpos(strtolower($short), $qNorm) === false) {
+        if ($qNorm !== '' && strpos(strtolower($code), $qNorm) === false) {
             continue;
         }
-        $plants[$short] = $short;
+        $plants[strtoupper($code)] = $code;
     }
-    $stmt->close();
     $list = array_values($plants);
     natcasesort($list);
     return array_values($list);
 }
 
 /**
- * Distinct departments for a short plant code (Cement + empWorkLocation match).
+ * Distinct AMS departments for a plant (uses real Department column).
  * @return list<string>
  */
 function clgp_list_ams_departments(string $plant): array
 {
-    $plant = trim($plant);
+    $plant = clgp_ams_canonical_plant($plant);
     if ($plant === '') {
         return [];
     }
     $db = clgp_db();
-    $product = clgp_ams_product_line();
+    $table = clgp_ams_employee_table();
+    $productSql = clgp_ams_product_line_sql();
+    $plantSql = clgp_ams_plant_match_sql();
     $stmt = $db->prepare(
-        "SELECT DISTINCT COALESCE(NULLIF(TRIM(Department), ''), NULLIF(TRIM(empDepartment), '')) AS dept
-         FROM tbl_nuvo_employee_clgp
+        "SELECT DISTINCT TRIM(Department) AS dept
+         FROM `$table`
          WHERE empStatus = 'Active'
-           AND empProductLine = ?
-           AND SUBSTRING(empWorkLocation, LOCATE('-', empWorkLocation) + 1) = ?
-         HAVING dept IS NOT NULL AND dept != ''
+           AND $productSql
+           AND $plantSql
+           AND Department IS NOT NULL
+           AND TRIM(Department) != ''
          ORDER BY dept"
     );
     if (!$stmt) {
         return [];
     }
-    $stmt->bind_param('ss', $product, $plant);
+    $stmt->bind_param('s', $plant);
     $stmt->execute();
     $res = $stmt->get_result();
     $deps = [];
@@ -630,60 +701,75 @@ function clgp_list_ams_departments(string $plant): array
 }
 
 /**
- * Search AMS employees (Cement only). Optionally filter by plant short code + department.
+ * List / search AMS employees.
+ * Pass empty $q to load everyone for plant (+ optional department) into a dropdown.
+ *
+ * @return list<array<string,mixed>>
  */
 function clgp_search_employees(string $q, int $limit = 20, ?string $plant = null, ?string $department = null): array
 {
     $db = clgp_db();
-    $like = '%' . $q . '%';
-    $product = clgp_ams_product_line();
+    $table = clgp_ams_employee_table();
+    $productSql = clgp_ams_product_line_sql();
     $plant = $plant !== null ? trim($plant) : '';
     $department = $department !== null ? trim($department) : '';
+    $q = trim($q);
+    $limit = max(1, min(2000, $limit));
 
     $sql = "SELECT empCode, empName, empBusiEmail, empDepartment, Department, empPlant, empWorkLocation, empProductLine
-            FROM tbl_nuvo_employee_clgp
+            FROM `$table`
             WHERE empStatus = 'Active'
-              AND empProductLine = ?
-              AND (empName LIKE ? OR empCode LIKE ? OR empBusiEmail LIKE ? OR IFNULL(searchIndex,'') LIKE ?)";
-    $types = 'sssss';
-    $params = [$product, $like, $like, $like, $like];
+              AND $productSql";
+    $types = '';
+    $params = [];
 
+    if ($q !== '') {
+        $like = '%' . $q . '%';
+        $sql .= ' AND (empName LIKE ? OR CAST(empCode AS CHAR) LIKE ? OR IFNULL(empBusiEmail,\'\') LIKE ? OR IFNULL(searchIndex,\'\') LIKE ?)';
+        $types .= 'ssss';
+        array_push($params, $like, $like, $like, $like);
+    }
     if ($plant !== '') {
-        $sql .= " AND SUBSTRING(empWorkLocation, LOCATE('-', empWorkLocation) + 1) = ?";
-        $types .= 's';
-        $params[] = $plant;
+        $sql .= ' AND ' . clgp_ams_plant_match_sql();
+        clgp_ams_bind_plant($types, $params, $plant);
     }
     if ($department !== '') {
-        $sql .= " AND (Department = ? OR empDepartment = ?)";
-        $types .= 'ss';
+        // Match official Department; also tolerate coded empDepartment strings.
+        $sql .= ' AND (TRIM(Department) = ? OR empDepartment = ? OR empDepartment LIKE ? OR empDepartment LIKE ?)';
+        $types .= 'ssss';
         $params[] = $department;
         $params[] = $department;
+        $params[] = '%-' . $department . '_%';
+        $params[] = '%-' . $department;
     }
-    $sql .= ' LIMIT ?';
+    $sql .= ' ORDER BY empName LIMIT ?';
     $types .= 'i';
     $params[] = $limit;
 
     $stmt = $db->prepare($sql);
     if (!$stmt) {
         $sql = "SELECT empCode, empName, empBusiEmail, empDepartment, Department, empPlant, empWorkLocation, empProductLine
-                FROM tbl_nuvo_employee_clgp
+                FROM `$table`
                 WHERE empStatus = 'Active'
-                  AND empProductLine = ?
-                  AND (empName LIKE ? OR empCode LIKE ? OR empBusiEmail LIKE ?)";
-        $types = 'ssss';
-        $params = [$product, $like, $like, $like];
+                  AND $productSql";
+        $types = '';
+        $params = [];
+        if ($q !== '') {
+            $like = '%' . $q . '%';
+            $sql .= ' AND (empName LIKE ? OR CAST(empCode AS CHAR) LIKE ? OR IFNULL(empBusiEmail,\'\') LIKE ?)';
+            $types .= 'sss';
+            array_push($params, $like, $like, $like);
+        }
         if ($plant !== '') {
-            $sql .= " AND SUBSTRING(empWorkLocation, LOCATE('-', empWorkLocation) + 1) = ?";
-            $types .= 's';
-            $params[] = $plant;
+            $sql .= ' AND ' . clgp_ams_plant_match_sql();
+            clgp_ams_bind_plant($types, $params, $plant);
         }
         if ($department !== '') {
-            $sql .= " AND (Department = ? OR empDepartment = ?)";
-            $types .= 'ss';
-            $params[] = $department;
+            $sql .= ' AND TRIM(Department) = ?';
+            $types .= 's';
             $params[] = $department;
         }
-        $sql .= ' LIMIT ?';
+        $sql .= ' ORDER BY empName LIMIT ?';
         $types .= 'i';
         $params[] = $limit;
         $stmt = $db->prepare($sql);
@@ -705,7 +791,7 @@ function clgp_search_employees(string $q, int $limit = 20, ?string $plant = null
 
 function clgp_next_application_no(): string
 {
-    $prefix = 'CLGP-' . date('Ymd') . '-';
+    $prefix = 'LIEO-' . date('Ymd') . '-';
     $res = clgp_db()->query(
         "SELECT application_no FROM tbl_clgp_application
          WHERE application_no LIKE '" . clgp_esc($prefix) . "%'
@@ -814,7 +900,8 @@ function clgp_list_applications(array $filters = []): array
         $where[] = "application_date >= '" . clgp_esc($filters['date_from']) . "'";
     }
     if (!empty($filters['plant'])) {
-        $where[] = "plant = '" . clgp_esc($filters['plant']) . "'";
+        $canonPlant = clgp_ams_canonical_plant($filters['plant']);
+        $where[] = clgp_sql_canonical_plant('plant') . " = '" . clgp_esc($canonPlant) . "'";
     }
     if (!empty($filters['department'])) {
         $where[] = "department = '" . clgp_esc($filters['department']) . "'";

@@ -59,7 +59,7 @@ require_once __DIR__ . '/../includes/header.php';
 <h2 class="clgp-title mb-2">Approval Matrix</h2>
 <p class="text-muted mb-4">
     Assign <strong>Time Office, Supervisor, N-1, HOD, Security, HR Head</strong> per plant (and department where required).
-    Saving creates or updates the CLGP login — default password is emailed; user must change password on first sign-in.
+    Saving creates or updates the LIEO login — default password is emailed; user must change password on first sign-in.
     LC/EG flow: Time Office <strong>creates</strong> → <strong>Supervisor → N-1 → HOD</strong> approve → Security <strong>closes at gate</strong>.
     <strong>Security</strong> and <strong>HR Head</strong> are assigned <em>once per plant</em> (not per department) — add a separate row for each plant.
 </p>
@@ -107,26 +107,32 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
 
                     <div class="form-group">
-                        <label>Search Employee (AMS) *</label>
-                        <input type="text" id="empSearch" class="form-control" placeholder="Type name / code / email" autocomplete="off"
-                               value="<?= htmlspecialchars($editRow['emp_name'] ?? '') ?>"
-                               <?= ($editPlant === '' || $editDept === '') ? 'disabled' : '' ?>>
-                        <div id="empResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:20;"></div>
-                    </div>
-                    <div class="form-group">
-                        <label>Employee Code</label>
-                        <input type="text" name="emp_code" id="emp_code" class="form-control" readonly required
-                               value="<?= htmlspecialchars($editRow['emp_code'] ?? '') ?>">
-                    </div>
-                    <div class="form-group">
-                        <label>Employee Name</label>
-                        <input type="text" name="emp_name" id="emp_name" class="form-control" readonly required
-                               value="<?= htmlspecialchars($editRow['emp_name'] ?? '') ?>">
-                    </div>
-                    <div class="form-group">
-                        <label>Employee Email</label>
-                        <input type="email" name="emp_email" id="emp_email" class="form-control" readonly
-                               value="<?= htmlspecialchars($editRow['emp_email'] ?? '') ?>">
+                        <label>Employee (AMS) *</label>
+                        <div id="empPickerCard" class="clgp-emp-picker <?= !empty($editRow['emp_code']) ? 'has-selection' : '' ?>">
+                            <div id="empPickerSelected" class="clgp-emp-picker-selected" <?= empty($editRow['emp_code']) ? 'style="display:none"' : '' ?>>
+                                <div class="clgp-emp-avatar" aria-hidden="true"><?php
+                                    $n = trim((string) ($editRow['emp_name'] ?? 'E'));
+                                    echo htmlspecialchars(strtoupper($n !== '' ? substr($n, 0, 1) : 'E'));
+                                ?></div>
+                                <div class="clgp-emp-meta">
+                                    <div class="clgp-emp-name" id="empDisplayName"><?= htmlspecialchars($editRow['emp_name'] ?? '') ?></div>
+                                    <div class="clgp-emp-code" id="empDisplayCode"><?= htmlspecialchars($editRow['emp_code'] ?? '') ?></div>
+                                    <div class="clgp-emp-email" id="empDisplayEmail"><?= htmlspecialchars($editRow['emp_email'] ?? '') ?></div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-link text-danger px-1" id="empClearBtn" title="Clear selection">Clear</button>
+                            </div>
+                            <button type="button" class="clgp-emp-open-btn" id="empBrowseBtn"
+                                    <?= ($editPlant === '' || $editDept === '') ? 'disabled' : '' ?>>
+                                <span class="clgp-emp-open-icon" aria-hidden="true"><i class="typcn typcn-zoom-outline"></i></span>
+                                <span class="clgp-emp-open-text" id="empBrowseLabel">
+                                    <?= !empty($editRow['emp_code']) ? 'Change employee' : 'Click here to search &amp; select employee' ?>
+                                </span>
+                            </button>
+                            <small class="text-muted d-block mt-1" id="empCountHint">Select plant and department first, then click above.</small>
+                        </div>
+                        <input type="hidden" name="emp_code" id="emp_code" required value="<?= htmlspecialchars($editRow['emp_code'] ?? '') ?>">
+                        <input type="hidden" name="emp_name" id="emp_name" required value="<?= htmlspecialchars($editRow['emp_name'] ?? '') ?>">
+                        <input type="hidden" name="emp_email" id="emp_email" value="<?= htmlspecialchars($editRow['emp_email'] ?? '') ?>">
                     </div>
                     <button type="submit" class="btn btn-clgp btn-block">Save &amp; Provision Login</button>
                     <?php if ($editRow): ?><a href="approval_matrix.php" class="btn btn-link btn-block">Cancel</a><?php endif; ?>
@@ -195,10 +201,180 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<style>
+.clgp-emp-picker {
+    border: 1px solid var(--clgp-border, #e2e8f0);
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px;
+}
+.clgp-emp-picker.has-selection {
+    border-color: rgba(66, 187, 82, 0.45);
+    background: linear-gradient(180deg, #f7fdf8 0%, #fff 55%);
+}
+.clgp-emp-picker-selected {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.clgp-emp-avatar {
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--clgp-green, #42bb52);
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.clgp-emp-meta { flex: 1; min-width: 0; }
+.clgp-emp-name { font-weight: 700; color: #0f172a; line-height: 1.25; }
+.clgp-emp-code { font-size: 12px; color: #64748b; }
+.clgp-emp-email { font-size: 12px; color: #64748b; word-break: break-all; }
+.clgp-emp-open-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 12px;
+    border: 1.5px dashed #94a3b8;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.clgp-emp-open-btn:hover:not(:disabled),
+.clgp-emp-open-btn:focus:not(:disabled) {
+    border-color: var(--clgp-green, #42bb52);
+    border-style: solid;
+    background: #f0faf2;
+    color: #166534;
+    box-shadow: 0 0 0 3px rgba(66, 187, 82, 0.15);
+    outline: none;
+}
+.clgp-emp-open-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.75;
+    color: #94a3b8;
+    background: #f1f5f9;
+}
+.clgp-emp-open-icon {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    color: #475569;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+.clgp-emp-open-btn:not(:disabled) .clgp-emp-open-icon {
+    background: rgba(66, 187, 82, 0.15);
+    color: var(--clgp-green-dark, #38a644);
+}
+.clgp-emp-open-text { flex: 1; line-height: 1.3; }
+.clgp-emp-modal-search {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #fff;
+    padding-bottom: 10px;
+}
+.clgp-emp-table tbody tr {
+    cursor: pointer;
+}
+.clgp-emp-table tbody tr:hover {
+    background: #f0faf2;
+}
+.clgp-emp-table tbody tr.is-selected {
+    background: #e6f7ea;
+}
+.clgp-emp-table td { vertical-align: middle; }
+.clgp-emp-row-name { font-weight: 600; color: #0f172a; }
+.clgp-emp-row-email { font-size: 12px; color: #64748b; }
+#clgpEmpBrowseModal { z-index: 1060; }
+#clgpEmpBrowseModal .modal-dialog { pointer-events: auto; }
+#clgpEmpBrowseModal .modal-content { pointer-events: auto; }
+</style>
+
+<div class="modal fade" id="clgpEmpBrowseModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title clgp-title mb-0" style="font-size:1.05rem;">Select employee</h5>
+                    <small class="text-muted" id="empModalScope">AMS directory</small>
+                </div>
+                <button type="button" class="close" id="empModalCloseBtn" aria-label="Close"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="clgp-emp-modal-search">
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-white">Search</span>
+                        </div>
+                        <input type="text" id="empModalSearch" class="form-control" placeholder="Filter by name, code or email…" autocomplete="off">
+                    </div>
+                    <small class="text-muted" id="empModalCount">Loading…</small>
+                </div>
+                <div class="table-responsive" style="max-height:420px;">
+                    <table class="table table-sm table-hover mb-0 clgp-emp-table">
+                        <thead class="thead-light">
+                            <tr>
+                                <th style="width:110px;">Code</th>
+                                <th>Name / Email</th>
+                                <th style="width:90px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="empModalBody">
+                            <tr><td colspan="3" class="text-muted text-center py-4">Loading employees…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="empModalCancelBtn">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
+    function clgpWhenReady(fn) {
+        if (window.jQuery) {
+            window.jQuery(fn);
+            return;
+        }
+        var tries = 0;
+        var t = setInterval(function () {
+            tries += 1;
+            if (window.jQuery) {
+                clearInterval(t);
+                window.jQuery(fn);
+            } else if (tries > 200) {
+                clearInterval(t);
+                fn();
+            }
+        }, 25);
+    }
+
+    clgpWhenReady(function () {
+    var $ = window.jQuery;
     var plantOnlyRoles = <?= json_encode(array_values($CLGP_MATRIX_PLANT_ROLES)) ?>;
-    var plantTimer = null, empTimer = null;
+    var plantTimer = null, empFilterTimer = null;
+    var empCache = [];
+    var empLoadedFor = '';
     var $plantSearch = document.getElementById('plantSearch');
     var $plant = document.getElementById('plant');
     var $plantBox = document.getElementById('plantResults');
@@ -206,11 +382,76 @@ require_once __DIR__ . '/../includes/header.php';
     var $deptAll = document.getElementById('departmentAll');
     var $deptGroup = document.getElementById('departmentGroup');
     var $role = document.getElementById('approval_step');
-    var $empSearch = document.getElementById('empSearch');
-    var $empBox = document.getElementById('empResults');
+    var $browseBtn = document.getElementById('empBrowseBtn');
+    var $browseLabel = document.getElementById('empBrowseLabel');
+    var $countHint = document.getElementById('empCountHint');
+    var $pickerCard = document.getElementById('empPickerCard');
+    var $pickerSelected = document.getElementById('empPickerSelected');
+    var $modalSearch = document.getElementById('empModalSearch');
+    var $modalBody = document.getElementById('empModalBody');
+    var $modalCount = document.getElementById('empModalCount');
+    var $modalScope = document.getElementById('empModalScope');
+    var $modalEl = document.getElementById('clgpEmpBrowseModal');
+    var $modal = $ ? $('#clgpEmpBrowseModal') : null;
+    var editEmpCode = <?= json_encode((string) ($editRow['emp_code'] ?? '')) ?>;
+
+    if ($ && $modal && $modal.length && !$modal.parent().is('body')) {
+        $modal.appendTo('body');
+    } else if ($modalEl && $modalEl.parentElement !== document.body) {
+        document.body.appendChild($modalEl);
+    }
+
+    function setBrowseLabel(text) {
+        if ($browseLabel) $browseLabel.textContent = text;
+    }
+
+    function showEmpModal() {
+        if ($ && $.fn.modal && $modal && $modal.length) {
+            $modal.modal({ backdrop: true, keyboard: true, show: true });
+            return;
+        }
+        if (!$modalEl) return;
+        $modalEl.classList.add('show');
+        $modalEl.style.display = 'block';
+        $modalEl.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+        if (!document.querySelector('.modal-backdrop')) {
+            var bd = document.createElement('div');
+            bd.className = 'modal-backdrop fade show';
+            document.body.appendChild(bd);
+        }
+    }
+
+    function hideEmpModal() {
+        if ($ && $.fn.modal && $modal && $modal.length) {
+            $modal.modal('hide');
+        }
+        if ($modalEl) {
+            $modalEl.classList.remove('show');
+            $modalEl.style.display = 'none';
+            $modalEl.setAttribute('aria-hidden', 'true');
+        }
+        document.body.classList.remove('modal-open');
+        document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+    }
 
     function isPlantOnlyRole() {
         return plantOnlyRoles.indexOf($role.value) >= 0;
+    }
+
+    function canLoadEmployees() {
+        if (!$plant.value) return false;
+        if (isPlantOnlyRole()) return true;
+        return !!$dept.value;
+    }
+
+    function loadKey() {
+        return $plant.value + '|' + (isPlantOnlyRole() ? 'All' : ($dept.value || ''));
+    }
+
+    function initialFromName(name) {
+        var t = (name || 'E').trim();
+        return t ? t.charAt(0).toUpperCase() : 'E';
     }
 
     function syncDepartmentField() {
@@ -221,37 +462,185 @@ require_once __DIR__ . '/../includes/header.php';
             $dept.removeAttribute('name');
             $deptAll.disabled = false;
             $deptAll.setAttribute('name', 'department');
-            $empSearch.disabled = !$plant.value;
         } else {
             $deptGroup.style.display = '';
             $deptAll.disabled = true;
             $deptAll.removeAttribute('name');
             $dept.setAttribute('name', 'department');
-            $empSearch.disabled = !($dept.value && $plant.value);
+        }
+        var ok = canLoadEmployees();
+        $browseBtn.disabled = !ok;
+        if (ok) {
+            setBrowseLabel(document.getElementById('emp_code').value ? 'Change employee' : 'Click here to search & select employee');
+            $countHint.textContent = 'Click the box above to open the searchable employee list.';
+            preloadEmployees(false, true);
+        } else {
+            empCache = [];
+            empLoadedFor = '';
+            setBrowseLabel('Select plant & department first');
+            $countHint.textContent = 'Select plant and department first, then click above.';
         }
     }
 
-    $role.addEventListener('change', function () {
-        syncDepartmentField();
-        clearEmployee();
-    });
-    syncDepartmentField();
+    function updatePickerUI() {
+        var code = document.getElementById('emp_code').value;
+        var name = document.getElementById('emp_name').value;
+        var email = document.getElementById('emp_email').value;
+        if (code) {
+            $pickerCard.classList.add('has-selection');
+            $pickerSelected.style.display = 'flex';
+            document.getElementById('empDisplayName').textContent = name;
+            document.getElementById('empDisplayCode').textContent = code;
+            document.getElementById('empDisplayEmail').textContent = email || '—';
+            $pickerSelected.querySelector('.clgp-emp-avatar').textContent = initialFromName(name);
+            setBrowseLabel('Change employee');
+        } else {
+            $pickerCard.classList.remove('has-selection');
+            $pickerSelected.style.display = 'none';
+            setBrowseLabel(canLoadEmployees() ? 'Click here to search & select employee' : 'Select plant & department first');
+        }
+    }
 
-    function clearEmployee() {
-        $empSearch.value = '';
+    function clearEmployeeFields() {
         document.getElementById('emp_code').value = '';
         document.getElementById('emp_name').value = '';
         document.getElementById('emp_email').value = '';
-        $empBox.style.display = 'none';
+        editEmpCode = '';
+        updatePickerUI();
     }
+
+    function selectEmployee(emp) {
+        document.getElementById('emp_code').value = String(emp.empCode || '');
+        document.getElementById('emp_name').value = emp.empName || '';
+        document.getElementById('emp_email').value = emp.empBusiEmail || '';
+        editEmpCode = String(emp.empCode || '');
+        updatePickerUI();
+        hideEmpModal();
+    }
+
+    function renderModalList(filterText) {
+        var q = (filterText || '').trim().toLowerCase();
+        var selected = document.getElementById('emp_code').value;
+        var matched = empCache.filter(function (e) {
+            if (!q) return true;
+            var hay = ((e.empCode || '') + ' ' + (e.empName || '') + ' ' + (e.empBusiEmail || '')).toLowerCase();
+            return hay.indexOf(q) !== -1;
+        });
+        $modalBody.innerHTML = '';
+        if (!matched.length) {
+            $modalBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">'
+                + (empCache.length ? 'No matches for your search.' : 'No employees found for this plant/department.')
+                + '</td></tr>';
+            $modalCount.textContent = 'Showing 0 of ' + empCache.length;
+            return;
+        }
+        matched.forEach(function (e) {
+            var tr = document.createElement('tr');
+            var code = String(e.empCode || '');
+            if (selected && selected === code) tr.className = 'is-selected';
+            tr.innerHTML =
+                '<td><code>' + code + '</code></td>' +
+                '<td><div class="clgp-emp-row-name"></div><div class="clgp-emp-row-email"></div></td>' +
+                '<td class="text-right"><button type="button" class="btn btn-sm btn-clgp">Select</button></td>';
+            tr.querySelector('.clgp-emp-row-name').textContent = e.empName || '';
+            tr.querySelector('.clgp-emp-row-email').textContent = e.empBusiEmail || '—';
+            tr.addEventListener('click', function (ev) {
+                if (ev.target.closest('button') || ev.target === tr || tr.contains(ev.target)) {
+                    selectEmployee(e);
+                }
+            });
+            $modalBody.appendChild(tr);
+        });
+        $modalCount.textContent = q
+            ? ('Showing ' + matched.length + ' of ' + empCache.length)
+            : (empCache.length + ' employees');
+    }
+
+    function preloadEmployees(force, autoSelect) {
+        if (!canLoadEmployees()) return Promise.resolve([]);
+        var key = loadKey();
+        if (!force && empLoadedFor === key && empCache.length) {
+            return Promise.resolve(empCache);
+        }
+        var plant = $plant.value;
+        var dept = isPlantOnlyRole() ? '' : $dept.value;
+        var url = '../api/search_employee.php?all=1&plant=' + encodeURIComponent(plant);
+        if (dept) url += '&department=' + encodeURIComponent(dept);
+        $countHint.textContent = 'Loading employee directory…';
+        return fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (rows) {
+                empCache = rows || [];
+                empLoadedFor = key;
+                $countHint.textContent = empCache.length
+                    ? (empCache.length + ' employees available — click above to pick.')
+                    : 'No employees found for this plant/department.';
+                if (autoSelect && editEmpCode) {
+                    var found = empCache.find(function (e) { return String(e.empCode) === String(editEmpCode); });
+                    if (found) {
+                        document.getElementById('emp_code').value = String(found.empCode || '');
+                        document.getElementById('emp_name').value = found.empName || '';
+                        document.getElementById('emp_email').value = found.empBusiEmail || '';
+                        updatePickerUI();
+                    }
+                }
+                return empCache;
+            })
+            .catch(function () {
+                empCache = [];
+                empLoadedFor = '';
+                $countHint.textContent = 'Failed to load employees. Try again.';
+                return [];
+            });
+    }
+
+    function openBrowseModal() {
+        if (!canLoadEmployees()) {
+            alert(isPlantOnlyRole() ? 'Select a plant first.' : 'Select plant and department first.');
+            return;
+        }
+        var scope = $plant.value + (isPlantOnlyRole() ? ' · All departments' : (' · ' + $dept.value));
+        $modalScope.textContent = scope;
+        $modalSearch.value = '';
+        $modalBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Loading employees…</td></tr>';
+        $modalCount.textContent = 'Loading…';
+        showEmpModal();
+        preloadEmployees(false, false).then(function () {
+            renderModalList('');
+            setTimeout(function () { $modalSearch.focus(); }, 250);
+        });
+    }
+
+    $browseBtn.addEventListener('click', openBrowseModal);
+    document.getElementById('empClearBtn').addEventListener('click', function () {
+        clearEmployeeFields();
+        if (canLoadEmployees()) {
+            setBrowseLabel('Click here to search & select employee');
+            $countHint.textContent = 'Click the box above to open the searchable employee list.';
+        }
+    });
+
+    $modalSearch.addEventListener('input', function () {
+        clearTimeout(empFilterTimer);
+        empFilterTimer = setTimeout(function () {
+            renderModalList($modalSearch.value);
+        }, 120);
+    });
+
+    $role.addEventListener('change', function () {
+        clearEmployeeFields();
+        syncDepartmentField();
+    });
 
     function loadDepartments(plant, selected) {
         $dept.innerHTML = '<option value="">Loading…</option>';
         $dept.disabled = true;
-        $empSearch.disabled = true;
-        clearEmployee();
+        clearEmployeeFields();
+        empCache = [];
+        empLoadedFor = '';
         if (!plant) {
             $dept.innerHTML = '<option value="">— Select plant first —</option>';
+            syncDepartmentField();
             return;
         }
         fetch('../api/ams_lookup.php?type=departments&plant=' + encodeURIComponent(plant))
@@ -278,8 +667,10 @@ require_once __DIR__ . '/../includes/header.php';
         $plant.value = '';
         $dept.innerHTML = '<option value="">— Select plant first —</option>';
         $dept.disabled = true;
-        $empSearch.disabled = true;
-        clearEmployee();
+        clearEmployeeFields();
+        empCache = [];
+        empLoadedFor = '';
+        syncDepartmentField();
         var v = this.value.trim();
         plantTimer = setTimeout(function () {
             var url = '../api/ams_lookup.php?type=plants' + (v ? '&q=' + encodeURIComponent(v) : '');
@@ -316,57 +707,8 @@ require_once __DIR__ . '/../includes/header.php';
     });
 
     $dept.addEventListener('change', function () {
-        clearEmployee();
+        clearEmployeeFields();
         syncDepartmentField();
-    });
-
-    $empSearch.addEventListener('input', function () {
-        clearTimeout(empTimer);
-        var v = this.value.trim();
-        var plant = $plant.value;
-        var dept = isPlantOnlyRole() ? '' : $dept.value;
-        if (!plant) {
-            $empBox.innerHTML = '<div class="list-group-item small text-muted">Select plant first</div>';
-            $empBox.style.display = 'block';
-            return;
-        }
-        if (!isPlantOnlyRole() && !dept) {
-            $empBox.innerHTML = '<div class="list-group-item small text-muted">Select plant and department first</div>';
-            $empBox.style.display = 'block';
-            return;
-        }
-        if (v.length < 2) { $empBox.style.display = 'none'; return; }
-        empTimer = setTimeout(function () {
-            var url = '../api/search_employee.php?q=' + encodeURIComponent(v)
-                + '&plant=' + encodeURIComponent(plant);
-            if (dept) {
-                url += '&department=' + encodeURIComponent(dept);
-            }
-            fetch(url)
-                .then(function (r) { return r.json(); })
-                .then(function (rows) {
-                    $empBox.innerHTML = '';
-                    if (!rows.length) {
-                        $empBox.innerHTML = '<div class="list-group-item small text-muted">No matches</div>';
-                    } else {
-                        rows.forEach(function (e) {
-                            var a = document.createElement('button');
-                            a.type = 'button';
-                            a.className = 'list-group-item list-group-item-action small';
-                            a.textContent = (e.empCode || '') + ' — ' + (e.empName || '') + (e.empBusiEmail ? ' (' + e.empBusiEmail + ')' : '');
-                            a.addEventListener('click', function () {
-                                document.getElementById('emp_code').value = e.empCode || '';
-                                document.getElementById('emp_name').value = e.empName || '';
-                                document.getElementById('emp_email').value = e.empBusiEmail || '';
-                                $empSearch.value = (e.empCode || '') + ' - ' + (e.empName || '');
-                                $empBox.style.display = 'none';
-                            });
-                            $empBox.appendChild(a);
-                        });
-                    }
-                    $empBox.style.display = 'block';
-                });
-        }, 300);
     });
 
     document.getElementById('matrixForm').addEventListener('submit', function (ev) {
@@ -383,8 +725,21 @@ require_once __DIR__ . '/../includes/header.php';
 
     document.addEventListener('click', function (ev) {
         if (!$plantBox.contains(ev.target) && ev.target !== $plantSearch) $plantBox.style.display = 'none';
-        if (!$empBox.contains(ev.target) && ev.target !== $empSearch) $empBox.style.display = 'none';
     });
+
+    updatePickerUI();
+    syncDepartmentField();
+
+    if ($modalEl) {
+        var closeBtn = document.getElementById('empModalCloseBtn');
+        var cancelBtn = document.getElementById('empModalCancelBtn');
+        if (closeBtn) closeBtn.addEventListener('click', function (e) { e.preventDefault(); hideEmpModal(); });
+        if (cancelBtn) cancelBtn.addEventListener('click', function (e) { e.preventDefault(); hideEmpModal(); });
+        $modalEl.addEventListener('click', function (e) {
+            if (e.target === $modalEl) hideEmpModal();
+        });
+    }
+    }); // clgpWhenReady
 })();
 </script>
 

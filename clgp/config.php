@@ -1,7 +1,7 @@
 <?php
 /**
- * CLGP module config — Phase 1 production (DB-backed).
- * App: Access control for Contract Workman Entry/Exit Pass
+ * LIEO module config — Late IN / Early Out (DB-backed).
+ * Internal code paths remain under /clgp for compatibility.
  */
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -10,8 +10,8 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/includes/repository.php';
 require_once __DIR__ . '/includes/ui.php';
 
-define('CLGP_APP_NAME', 'Access control for Contract Workman Entry/Exit Pass');
-define('CLGP_APP_SHORT', 'CLGP');
+define('CLGP_APP_NAME', 'Late IN / Early Out');
+define('CLGP_APP_SHORT', 'LIEO');
 
 /**
  * Absolute public base for CLGP (used in emails).
@@ -111,6 +111,16 @@ function clgp_role_label(string $role): string
 {
     global $CLGP_ROLES;
     return $CLGP_ROLES[$role]['label'] ?? ucfirst($role);
+}
+
+/** Display label for stored application_type (DB keeps Late Coming / Early Going). */
+function clgp_application_type_label(string $type): string
+{
+    $map = [
+        'Late Coming' => 'Late IN',
+        'Early Going' => 'Early Out',
+    ];
+    return $map[$type] ?? $type;
 }
 
 /** Two-letter initials for account avatar. */
@@ -270,7 +280,7 @@ function clgp_mail_portal_cta_html(): string
     $url = clgp_login_page_url();
     $safe = htmlspecialchars($url);
     return '<br><br>'
-        . '<p style="margin:16px 0 8px;"><strong>Open CLGP portal:</strong></p>'
+        . '<p style="margin:16px 0 8px;"><strong>Open LIEO portal:</strong></p>'
         . '<p style="margin:0 0 12px;">'
         . '<a href="' . $safe . '" '
         . 'style="background:#42bb52;color:#ffffff;padding:12px 20px;text-decoration:none;'
@@ -298,10 +308,10 @@ function clgp_send_mail(string $toEmail, string $toName, string $subject, string
 function clgp_send_credentials_email(string $toEmail, string $toName, string $password): void
 {
     $body = 'Dear ' . htmlspecialchars($toName) . ',<br><br>'
-        . 'Your account has been created for <strong>' . htmlspecialchars(CLGP_APP_NAME) . '</strong>.<br><br>'
+        . 'Your account has been created for <strong>' . htmlspecialchars(CLGP_APP_NAME) . ' (' . htmlspecialchars(CLGP_APP_SHORT) . ')</strong>.<br><br>'
         . 'Login ID: <strong>' . htmlspecialchars($toEmail) . '</strong><br>'
         . 'Default Password: <strong>' . htmlspecialchars($password) . '</strong><br><br>'
-        . 'Please use the button below to open the CLGP portal, then change your password after first login.';
+        . 'Please use the button below to open the LIEO portal, then change your password after first login.';
     clgp_send_mail($toEmail, $toName, CLGP_APP_SHORT . ' :: Login Credentials', $body);
 }
 
@@ -376,7 +386,7 @@ function clgp_application_email_block(array $app): string
 {
     $lines = [
         'Application No' => $app['application_no'] ?? '—',
-        'Type' => $app['application_type'] ?? '—',
+        'Type' => clgp_application_type_label((string) ($app['application_type'] ?? '—')),
         'Workman' => trim(($app['workman_name'] ?? '') . ' (' . ($app['workman_code'] ?? '') . ')'),
         'Contractor' => $app['contractor_name'] ?? '—',
         'Plant / Dept' => trim(($app['plant'] ?? '') . ' / ' . ($app['department'] ?? '')),
@@ -402,9 +412,9 @@ function clgp_notify_application_created(array $app): void
     }
     $subject = CLGP_APP_SHORT . ' :: New application pending — ' . ($app['application_no'] ?? '');
     $body = 'Dear ' . htmlspecialchars($to['name']) . ',<br><br>'
-        . 'A new <strong>Late Coming / Early Going</strong> application has been created and is pending your approval (Supervisor).<br><br>'
+        . 'A new <strong>Late IN / Early Out</strong> application has been created and is pending your approval (Supervisor).<br><br>'
         . clgp_application_email_block($app)
-        . '<br>Please sign in to CLGP to action it.';
+        . '<br>Please sign in to LIEO to action it.';
     clgp_send_mail($to['email'], $to['name'], $subject, $body);
 }
 
@@ -503,7 +513,7 @@ function clgp_notify_reactivation_requested(array $contractor): void
             . '<strong>Contractor:</strong> ' . htmlspecialchars($cname) . '<br>'
             . '<strong>Deactivated at:</strong> ' . htmlspecialchars($contractor['deactivated_at'] ?? '—') . '<br>'
             . '<strong>Reason:</strong> ' . htmlspecialchars($contractor['deactivation_reason'] ?? '—') . '<br><br>'
-            . 'Please sign in to CLGP → Reactivation Requests to approve.';
+            . 'Please sign in to LIEO → Reactivation Requests to approve.';
         clgp_send_mail($to['email'], $to['name'], $subject, $body);
     }
 }

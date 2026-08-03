@@ -41,7 +41,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <?php foreach ($list as $a): ?>
                 <tr>
                     <td><?= htmlspecialchars($a['application_no']) ?></td>
-                    <td><?= htmlspecialchars($a['application_type']) ?></td>
+                    <td><?= htmlspecialchars(clgp_application_type_label($a['application_type'] ?? '')) ?></td>
                     <td><?= htmlspecialchars($a['workman_name']) ?></td>
                     <td><?= htmlspecialchars($a['plant']) ?></td>
                     <td><?= htmlspecialchars($a['application_date']) ?></td>

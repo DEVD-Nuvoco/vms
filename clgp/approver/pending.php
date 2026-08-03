@@ -59,7 +59,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <h2 class="clgp-title mb-2"><?= htmlspecialchars(clgp_step_label($role)) ?> Approvals</h2>
 <p class="text-muted mb-4">
-    Late Coming / Early Going requests waiting for your action. Chain: Supervisor → N-1 → HOD.
+    Late IN / Early Out requests waiting for your action. Chain: Supervisor → N-1 → HOD.
     <a href="history.php">View my history (full remark trail)</a>
 </p>
 
@@ -76,7 +76,7 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
             <div class="card-body">
                 <table class="table table-sm table-borderless mb-3">
-                    <tr><th>Type</th><td><?= htmlspecialchars($p['application_type']) ?></td></tr>
+                    <tr><th>Type</th><td><?= htmlspecialchars(clgp_application_type_label($p['application_type'] ?? '')) ?></td></tr>
                     <tr><th>Workman Name</th><td><?= htmlspecialchars($p['workman_name']) ?></td></tr>
                     <tr><th>Workman ID Code</th><td><?= htmlspecialchars($p['workman_code']) ?></td></tr>
                     <tr><th>Contractor</th><td><?= htmlspecialchars($p['contractor_name']) ?></td></tr>

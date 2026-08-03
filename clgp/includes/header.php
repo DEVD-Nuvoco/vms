@@ -65,8 +65,9 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($pageTitle) ?> — <?= htmlspecialchars(CLGP_APP_SHORT) ?></title>
-    <link href="<?= $clgpAssets ?>lib/fontawesome-free/css/all.min.css" rel="stylesheet">
-    <link href="<?= $clgpAssets ?>lib/typicons.font/typicons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/typicons.font@2.1.2/src/font/typicons.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" crossorigin="anonymous">
     <link rel="stylesheet" href="<?= $clgpAssets ?>css/azia.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
     <style>
@@ -305,7 +306,11 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
         }
         .clgp-history-table tbody td { vertical-align: middle; }
         .clgp-history-card .dataTables_wrapper .row { margin-left: 0; margin-right: 0; }
-        #clgpTrailModal { z-index: 1060; }
+        #clgpTrailModal,
+        #clgpEmpBrowseModal,
+        #clgpGateCloseModal {
+            z-index: 1060;
+        }
         .modal-backdrop { z-index: 1055; }
         .clgp-account-menu { flex: 0 0 auto; }
         .clgp-account-trigger {

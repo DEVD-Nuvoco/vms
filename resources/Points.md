@@ -1,23 +1,25 @@
-# CLGP — Email recipients (who gets mail)
+# LIEO (Late IN / Early Out) — Email recipients
 
 SMTP uses shared VMS `emailSMTP.php` (`sent_email`).
 
-Every CLGP email includes a green **Click here to login** button plus the full URL:
+Every LIEO email includes a green **Click here to login** button plus the full URL:
 `https://vms.nuvoco.in/vms/clgp/login.php`
 (override with `CLGP_PUBLIC_BASE_URL` if the server path differs).
+
+> Branding: **LIEO** = Late IN / Early Out. Folder/URL path remains `/clgp` for compatibility.
 
 ## A. When a **user / login is created** (Approval Matrix)
 
 | Event | Who receives email | Content |
 |-------|--------------------|---------|
-| Admin saves **new** matrix assignee (no existing CLGP login) | That employee’s **business email** | Login ID + default password |
+| Admin saves **new** matrix assignee (no existing LIEO login) | That employee’s **business email** | Login ID + default password |
 | Matrix update for **existing** login | **No** new credentials email | Profile updated only |
 
 Roles that can get credentials mail (when first created): Time Office, Supervisor, N-1, HOD, Security, HR Head.
 
 ---
 
-## B. Late Coming / Early Going — **application flow**
+## B. Late IN / Early Out — **application flow**
 
 | # | Event | Who receives email | Source of address |
 |---|--------|--------------------|-------------------|
@@ -31,6 +33,8 @@ Roles that can get credentials mail (when first created): Time Office, Superviso
 Flow (no attestation):
 
 `Create → Supervisor → N-1 → HOD → Security closes`
+
+New application numbers use prefix **`LIEO-YYYYMMDD-####`** (older rows may still show `CLGP-…`).
 
 ---
 

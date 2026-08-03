@@ -70,8 +70,8 @@ if(($_POST['emailVal']!='') and ($_POST['passVal']!='')){
           <h5><a href="index.php">Visitor Mangement System</a></h5>
           <p>Nuvoco Vistas Corporation Limited (<a href="https://www.nuvoco.com/" style="color:#000000;" target="_blank"><strong>N<span style="color:#FF0000">u</span><span style="color:#00CC33">v</span>oco</strong></a>) is a building materials company with a vision to build a Safer, Smarter and Sustainable world and aspires to be a "<em>Trusted Building Materials Company Creating Value for our Stakeholder</em>".<br /><br />
           The Visitor Management System (VMS) is a cutting-edge solution designed to revolutionize visitor access and meeting scheduling for plants and corporate facilities. With an emphasis on seamless operations, VMS integrates gate pass management, automated notifications, and robust safety compliance protocols to deliver an exceptional user experience.</p>
-          <p class="mt-3 mb-2"><strong>Contract Labour Gate Pass (CLGP)</strong></p>
-          <a href="clgp/login.php" class="btn btn-az-primary">Go to CLGP Login</a>
+          <p class="mt-3 mb-2"><strong>Late IN / Early Out (LIEO)</strong></p>
+          <a href="clgp/login.php" class="btn btn-az-primary">Go to LIEO Login</a>
 
         </div>
       </div><!-- az-column-signup-left -->

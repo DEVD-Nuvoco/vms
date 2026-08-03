@@ -35,7 +35,7 @@ if (!isset($clgpDb) || !($clgpDb instanceof mysqli)) {
 
 if (!isset($clgpDb) || !($clgpDb instanceof mysqli) || $clgpDb->connect_errno) {
     http_response_code(500);
-    die('CLGP: database connection unavailable. Ensure MySQL is running and database/clgp_phase1.sql has been applied.');
+    die('LIEO: database connection unavailable. Ensure MySQL is running and database/clgp_phase1.sql has been applied.');
 }
 
 $clgpDb->set_charset('utf8mb4');

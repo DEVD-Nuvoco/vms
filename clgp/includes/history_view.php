@@ -56,7 +56,7 @@ clgp_page_header(
                     <tr>
                         <td class="text-nowrap small"><?= htmlspecialchars($row['acted_at'] ?? '—') ?></td>
                         <td class="small font-weight-bold"><?= htmlspecialchars($row['application_no'] ?? '—') ?></td>
-                        <td class="small"><?= htmlspecialchars($row['application_type'] ?? '—') ?></td>
+                        <td class="small"><?= htmlspecialchars(clgp_application_type_label($row['application_type'] ?? '—')) ?></td>
                         <td class="small">
                             <?= htmlspecialchars($row['workman_name'] ?? '—') ?>
                             <span class="text-muted d-block"><?= htmlspecialchars($row['workman_code'] ?? '') ?></span>

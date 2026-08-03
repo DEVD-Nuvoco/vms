@@ -74,7 +74,7 @@ clgp_page_header(
 
     'Gate Attendance',
 
-    'Early IN/OUT — all applications for your plant'
+    'Early IN / Early Out (LIEO) — all applications for your plant'
 
         . ($userPlant !== '' ? ' (' . $userPlant . ')' : '')
 
@@ -144,7 +144,7 @@ clgp_page_header(
 
                     <td class="font-weight-bold"><?= htmlspecialchars($p['application_no']) ?></td>
 
-                    <td><?= htmlspecialchars($p['application_type']) ?></td>
+                    <td><?= htmlspecialchars(clgp_application_type_label($p['application_type'] ?? '')) ?></td>
 
                     <td>
 
@@ -286,7 +286,7 @@ $(function () {
 
         $('#clgpGateCloseAppNo').text(appNo);
 
-        $('#clgpGateCloseHint').text(label + ' — remark is mandatory for Early IN/OUT.');
+        $('#clgpGateCloseHint').text(label + ' — remark is mandatory for LIEO (Late IN / Early Out).');
 
         $('#clgpGateCloseRemark').val('');
 

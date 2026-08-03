@@ -21,7 +21,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <h2 class="clgp-title mb-2">Roles</h2>
 <p class="text-muted mb-4">
-    CLGP roles are fixed. Assign people to roles in the <a href="approval_matrix.php">Approval Matrix</a>
+    LIEO roles are fixed. Assign people to roles in the <a href="approval_matrix.php">Approval Matrix</a>
     (login + default password emailed). LC/EG chain: Time Office creates → Supervisor → N-1 → HOD → Security closes at gate.
 </p>
 

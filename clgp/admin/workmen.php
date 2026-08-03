@@ -19,7 +19,7 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <h2 class="clgp-title mb-4">Workman Master</h2>
-<p class="text-muted">Time Office selects workmen from this list when creating Late Coming / Early Going applications.</p>
+<p class="text-muted">Time Office selects workmen from this list when creating Late IN / Early Out applications.</p>
 
 <div class="row">
     <div class="col-md-4">
