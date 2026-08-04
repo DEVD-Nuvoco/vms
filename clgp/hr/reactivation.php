@@ -24,14 +24,13 @@ require_once __DIR__ . '/../includes/header.php';
 <?php else: ?>
 <table class="table table-bordered clgp-datatable">
     <thead>
-        <tr><th>Vendor</th><th>Contractor</th><th>Type</th><th>Deactivated</th><th>Reason</th><th></th></tr>
+        <tr><th>Contractor</th><th>Type</th><th>Deactivated</th><th>Reason</th><th></th></tr>
     </thead>
     <tbody>
         <?php foreach ($list as $c): ?>
         <tr>
-            <td><?= htmlspecialchars($c['vendor_name']) ?></td>
             <td><?= htmlspecialchars($c['contractor_name']) ?></td>
-            <td><?= htmlspecialchars($c['vendor_type']) ?></td>
+            <td><?= htmlspecialchars($c['contractor_type']) ?></td>
             <td><?= htmlspecialchars($c['deactivated_at'] ?: '—') ?></td>
             <td><?= htmlspecialchars($c['deactivation_reason'] ?: '—') ?></td>
             <td>

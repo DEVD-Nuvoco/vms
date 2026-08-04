@@ -345,27 +345,27 @@ function clgp_get_contractor(int $id): ?array
 function clgp_save_contractor(array $data, ?int $id = null): array
 {
     $db = clgp_db();
-    $vendor = trim($data['vendor_name'] ?? '');
     $cname = trim($data['contractor_name'] ?? '');
-    $vtype = $data['vendor_type'] ?? 'Temporary';
+    $vtype = $data['contractor_type'] ?? ($data['vendor_type'] ?? 'Temporary');
     $sup = trim($data['supervisor_name'] ?? '');
     $email = trim($data['email'] ?? '');
     $cmob = trim($data['contractor_mobile'] ?? '');
     $smob = trim($data['supervisor_mobile'] ?? '');
     $allowed = ['Supply', 'Temporary', 'Measurement'];
     if (!in_array($vtype, $allowed, true)) {
-        return ['ok' => false, 'message' => 'Invalid vendor type.'];
+        return ['ok' => false, 'message' => 'Invalid contractor type.'];
     }
-    if ($vendor === '' || $cname === '' || $sup === '' || $email === '' || $cmob === '' || $smob === '') {
+    if ($cname === '' || $sup === '' || $email === '' || $cmob === '' || $smob === '') {
         return ['ok' => false, 'message' => 'All contractor fields are mandatory.'];
     }
 
     if ($id) {
         $stmt = $db->prepare(
-            "UPDATE tbl_clgp_contractor SET vendor_name=?, contractor_name=?, vendor_type=?, supervisor_name=?, email=?, contractor_mobile=?, supervisor_mobile=?
+            "UPDATE tbl_clgp_contractor
+             SET contractor_name=?, contractor_type=?, supervisor_name=?, email=?, contractor_mobile=?, supervisor_mobile=?
              WHERE contractor_id=?"
         );
-        $stmt->bind_param('sssssssi', $vendor, $cname, $vtype, $sup, $email, $cmob, $smob, $id);
+        $stmt->bind_param('ssssssi', $cname, $vtype, $sup, $email, $cmob, $smob, $id);
         $ok = $stmt->execute();
         $stmt->close();
         return $ok ? ['ok' => true, 'contractor_id' => $id] : ['ok' => false, 'message' => 'Update failed.'];
@@ -374,10 +374,10 @@ function clgp_save_contractor(array $data, ?int $id = null): array
     $createdBy = (int) ($_SESSION['clgp_user_id'] ?? 0);
     $stmt = $db->prepare(
         "INSERT INTO tbl_clgp_contractor
-         (vendor_name, contractor_name, vendor_type, supervisor_name, email, contractor_mobile, supervisor_mobile, status, created_by)
-         VALUES (?,?,?,?,?,?,?,'Active',?)"
+         (contractor_name, contractor_type, supervisor_name, email, contractor_mobile, supervisor_mobile, status, created_by)
+         VALUES (?,?,?,?,?,?,'Active',?)"
     );
-    $stmt->bind_param('sssssssi', $vendor, $cname, $vtype, $sup, $email, $cmob, $smob, $createdBy);
+    $stmt->bind_param('ssssssi', $cname, $vtype, $sup, $email, $cmob, $smob, $createdBy);
     $ok = $stmt->execute();
     $newId = (int) $stmt->insert_id;
     $stmt->close();
@@ -440,7 +440,7 @@ function clgp_list_reactivation_requests(): array
 
 function clgp_list_workmen(?string $status = 'Active'): array
 {
-    $sql = "SELECT w.*, c.vendor_name
+    $sql = "SELECT w.*, c.contractor_name AS vendor_name, c.contractor_name
             FROM tbl_clgp_workman w
             INNER JOIN tbl_clgp_contractor c ON c.contractor_id = w.contractor_id";
     if ($status) {
@@ -454,12 +454,34 @@ function clgp_list_workmen(?string $status = 'Active'): array
 function clgp_get_workman(int $id): ?array
 {
     $stmt = clgp_db()->prepare(
-        "SELECT w.*, c.vendor_name, c.contractor_name AS contractor_display
+        "SELECT w.*, c.contractor_name AS vendor_name, c.contractor_name AS contractor_display
          FROM tbl_clgp_workman w
          INNER JOIN tbl_clgp_contractor c ON c.contractor_id = w.contractor_id
          WHERE w.workman_id = ?"
     );
     $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
+function clgp_find_workman_by_code(string $code): ?array
+{
+    $code = trim($code);
+    if ($code === '') {
+        return null;
+    }
+    $stmt = clgp_db()->prepare(
+        "SELECT w.*, c.contractor_name AS vendor_name
+         FROM tbl_clgp_workman w
+         LEFT JOIN tbl_clgp_contractor c ON c.contractor_id = w.contractor_id
+         WHERE w.workman_code = ? LIMIT 1"
+    );
+    if (!$stmt) {
+        return null;
+    }
+    $stmt->bind_param('s', $code);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
@@ -984,31 +1006,80 @@ function clgp_next_application_no(): string
 
 function clgp_create_application(array $data): array
 {
-    $workmanId = (int) ($data['workman_id'] ?? 0);
     $type = $data['application_type'] ?? '';
     $reason = trim($data['reason'] ?? '');
     $createdBy = (int) ($data['created_by'] ?? 0);
 
-    if (!in_array($type, ['Late Coming', 'Early Going'], true) || $workmanId < 1 || $reason === '') {
-        return ['ok' => false, 'message' => 'Workman, type and reason are required.'];
+    $workmanName = trim($data['workman_name'] ?? '');
+    $workmanCode = trim($data['workman_code'] ?? '');
+    $contractorId = (int) ($data['contractor_id'] ?? 0);
+    $plant = clgp_ams_canonical_plant($data['plant'] ?? '');
+    $department = trim($data['department'] ?? '');
+    $shift = trim($data['shift'] ?? '');
+
+    // Legacy: create from existing workman master id
+    $workmanId = (int) ($data['workman_id'] ?? 0);
+    if ($workmanId > 0 && $workmanName === '') {
+        $w = clgp_get_workman($workmanId);
+        if (!$w || $w['status'] !== 'Active') {
+            return ['ok' => false, 'message' => 'Workman not found or inactive.'];
+        }
+        $workmanName = $w['workman_name'];
+        $workmanCode = $w['workman_code'];
+        $contractorId = (int) $w['contractor_id'];
+        $plant = clgp_ams_canonical_plant($w['plant'] ?? '');
+        $department = trim($w['department'] ?? '');
+        $shift = trim($w['shift'] ?? '');
     }
 
-    $w = clgp_get_workman($workmanId);
-    if (!$w || $w['status'] !== 'Active') {
-        return ['ok' => false, 'message' => 'Workman not found or inactive.'];
+    if (!in_array($type, ['Late Coming', 'Early Going'], true) || $reason === '') {
+        return ['ok' => false, 'message' => 'Application type and reason are required.'];
     }
+    if ($workmanName === '' || $workmanCode === '' || $contractorId < 1 || $plant === '' || $department === '') {
+        return ['ok' => false, 'message' => 'Workman name, ID code, contractor, plant and department are required.'];
+    }
+
+    $contractor = clgp_get_contractor($contractorId);
+    if (!$contractor || ($contractor['status'] ?? '') !== 'Active') {
+        return ['ok' => false, 'message' => 'Contractor not found or inactive.'];
+    }
+    $cName = $contractor['contractor_name'] ?? ($contractor['vendor_name'] ?? '');
 
     // Must have Supervisor matrix rule for plant/dept (first approver)
-    $sup = clgp_get_matrix_approver($w['plant'], $w['department'], 'supervisor');
+    $sup = clgp_get_matrix_approver($plant, $department, 'supervisor');
     if (!$sup) {
-        return ['ok' => false, 'message' => 'No Supervisor configured in Approval Matrix for ' . $w['plant'] . ' / ' . $w['department'] . '.'];
+        return ['ok' => false, 'message' => 'No Supervisor configured in Approval Matrix for ' . $plant . ' / ' . $department . '.'];
+    }
+
+    // Optional: keep workman master in sync for reporting (find-or-create by code)
+    if ($workmanId < 1) {
+        $existing = clgp_find_workman_by_code($workmanCode);
+        if ($existing) {
+            $workmanId = (int) $existing['workman_id'];
+            clgp_save_workman([
+                'workman_code' => $workmanCode,
+                'workman_name' => $workmanName,
+                'contractor_id' => $contractorId,
+                'plant' => $plant,
+                'department' => $department,
+                'shift' => $shift,
+            ], $workmanId);
+        } else {
+            $saved = clgp_save_workman([
+                'workman_code' => $workmanCode,
+                'workman_name' => $workmanName,
+                'contractor_id' => $contractorId,
+                'plant' => $plant,
+                'department' => $department,
+                'shift' => $shift,
+            ]);
+            $workmanId = $saved['ok'] ? (int) ($saved['workman_id'] ?? 0) : 0;
+        }
     }
 
     $access = $type === 'Late Coming' ? 'Entry' : 'Exit';
     $appNo = clgp_next_application_no();
     $date = date('Y-m-d');
-    $cName = $w['vendor_name'] ?? '';
-    $cid = (int) $w['contractor_id'];
 
     $stmt = clgp_db()->prepare(
         "INSERT INTO tbl_clgp_application
@@ -1023,13 +1094,13 @@ function clgp_create_application(array $data): array
         $type,
         $access,
         $workmanId,
-        $w['workman_code'],
-        $w['workman_name'],
-        $cid,
+        $workmanCode,
+        $workmanName,
+        $contractorId,
         $cName,
-        $w['plant'],
-        $w['department'],
-        $w['shift'],
+        $plant,
+        $department,
+        $shift,
         $reason,
         $date,
         $createdBy

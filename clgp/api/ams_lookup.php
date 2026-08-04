@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
-clgp_require_role(['admin']);
+clgp_require_role(['admin', 'timeoffice']);
 
 header('Content-Type: application/json; charset=utf-8');
 

@@ -17,8 +17,7 @@ $clgpRoot = clgp_root_prefix();
 $adminNav = [
     'dashboard'   => ['label' => 'Dashboard',       'url' => clgp_nav_url('admin', 'index.php'),            'icon' => 'typcn-chart-area-outline'],
     'matrix'      => ['label' => 'Approval Matrix', 'url' => clgp_nav_url('admin', 'approval_matrix.php'),  'icon' => 'typcn-flow-merge'],
-    'contractors' => ['label' => 'Contractors',     'url' => clgp_nav_url('admin', 'contractors.php'),      'icon' => 'typcn-briefcase'],
-    'workmen'     => ['label' => 'Workmen',         'url' => clgp_nav_url('admin', 'workmen.php'),          'icon' => 'typcn-user'],
+    'contractors' => ['label' => 'Contractors Master',     'url' => clgp_nav_url('admin', 'contractors.php'),      'icon' => 'typcn-briefcase'],
     'users'       => ['label' => 'Roles',           'url' => clgp_nav_url('admin', 'users.php'),            'icon' => 'typcn-group-outline'],
 ];
 

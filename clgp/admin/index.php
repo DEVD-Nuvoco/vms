@@ -97,7 +97,6 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="card-body">
                 <a href="approval_matrix.php" class="btn btn-clgp btn-block mb-2">Approval Matrix</a>
                 <a href="contractors.php" class="btn btn-outline-success btn-block mb-2">Contractors</a>
-                <a href="workmen.php" class="btn btn-outline-success btn-block mb-2">Workmen</a>
                 <a href="users.php" class="btn btn-outline-success btn-block">Roles</a>
             </div>
         </div>

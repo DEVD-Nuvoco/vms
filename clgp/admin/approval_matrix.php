@@ -77,156 +77,158 @@ require_once __DIR__ . '/../includes/header.php';
     <strong>Security</strong> and <strong>HR Head</strong> are assigned <em>once per plant</em> (not per department) — add a separate row for each plant.
 </p>
 
-<div class="row">
-    <div class="col-md-4">
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-white font-weight-bold text-success"><?= $editRow ? 'Edit Assignment' : 'Add Role Assignment' ?></div>
-            <div class="card-body">
-                <form method="post" id="matrixForm" autocomplete="off">
-                    <input type="hidden" name="action" value="<?= $editRow ? 'edit' : 'add' ?>">
-                    <?php if ($editRow): ?><input type="hidden" name="id" value="<?= (int)$editRow['matrix_id'] ?>"><?php endif; ?>
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white font-weight-bold text-success"><?= $editRow ? 'Edit Assignment' : 'Add Role Assignment' ?></div>
+    <div class="card-body">
+        <form method="post" id="matrixForm" autocomplete="off">
+            <input type="hidden" name="action" value="<?= $editRow ? 'edit' : 'add' ?>">
+            <?php if ($editRow): ?><input type="hidden" name="id" value="<?= (int)$editRow['matrix_id'] ?>"><?php endif; ?>
+            <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
 
-                    <div class="form-group">
-                        <label>Plant * <small class="text-muted">(search AMS)</small></label>
-                        <input type="text" id="plantSearch" class="form-control" placeholder="Type plant e.g. JCP"
-                               value="<?= htmlspecialchars($editPlant) ?>" autocomplete="off" required>
-                        <input type="hidden" name="plant" id="plant" value="<?= htmlspecialchars($editPlant) ?>" required>
-                        <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
-                    </div>
-
-                    <div class="form-group" id="departmentGroup">
-                        <label>Department *</label>
-                        <select name="department" id="department" class="form-control" required <?= $editPlant === '' ? 'disabled' : '' ?>>
-                            <option value="">— Select plant first —</option>
-                            <?php foreach ($editDepts as $d): ?>
-                            <option value="<?= htmlspecialchars($d) ?>" <?= $editDept === $d ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($d) ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <input type="hidden" name="department" id="departmentAll" value="All" disabled>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Role *</label>
-                        <select name="approval_step" id="approval_step" class="form-control" required>
-                            <?php foreach ($CLGP_APPROVAL_STEPS as $key => $label): ?>
-                            <option value="<?= $key ?>" <?= (($editRow['approval_step'] ?? '') === $key) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($label) ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <small class="text-muted" id="roleHint">Security and HR Head: pick plant only — one assignee per plant.</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Employee (AMS) *</label>
-                        <div id="empPickerCard" class="clgp-emp-picker <?= !empty($editRow['emp_code']) ? 'has-selection' : '' ?>">
-                            <div id="empPickerSelected" class="clgp-emp-picker-selected" <?= empty($editRow['emp_code']) ? 'style="display:none"' : '' ?>>
-                                <div class="clgp-emp-avatar" aria-hidden="true"><?php
-                                    $n = trim((string) ($editRow['emp_name'] ?? 'E'));
-                                    echo htmlspecialchars(strtoupper($n !== '' ? substr($n, 0, 1) : 'E'));
-                                ?></div>
-                                <div class="clgp-emp-meta">
-                                    <div class="clgp-emp-name" id="empDisplayName"><?= htmlspecialchars($editRow['emp_name'] ?? '') ?></div>
-                                    <div class="clgp-emp-code" id="empDisplayCode"><?= htmlspecialchars($editRow['emp_code'] ?? '') ?></div>
-                                    <div class="clgp-emp-email" id="empDisplayEmail"><?= htmlspecialchars($editRow['emp_email'] ?? '') ?></div>
-                                </div>
-                                <button type="button" class="btn btn-sm btn-link text-danger px-1" id="empClearBtn" title="Clear selection">Clear</button>
-                            </div>
-                            <button type="button" class="clgp-emp-open-btn" id="empBrowseBtn"
-                                    <?= ($editPlant === '' || $editDept === '') ? 'disabled' : '' ?>>
-                                <span class="clgp-emp-open-icon" aria-hidden="true"><i class="typcn typcn-zoom-outline"></i></span>
-                                <span class="clgp-emp-open-text" id="empBrowseLabel">
-                                    <?= !empty($editRow['emp_code']) ? 'Change employee' : 'Click here to search &amp; select employee' ?>
-                                </span>
-                            </button>
-                            <small class="text-muted d-block mt-1" id="empCountHint">Select plant and department first, then click above.</small>
-                        </div>
-                        <input type="hidden" name="emp_code" id="emp_code" required value="<?= htmlspecialchars($editRow['emp_code'] ?? '') ?>">
-                        <input type="hidden" name="emp_name" id="emp_name" required value="<?= htmlspecialchars($editRow['emp_name'] ?? '') ?>">
-                        <input type="hidden" name="emp_email" id="emp_email" value="<?= htmlspecialchars($editRow['emp_email'] ?? '') ?>">
-                    </div>
-                    <button type="submit" class="btn btn-clgp btn-block">Save &amp; Provision Login</button>
-                    <?php if ($editRow): ?><a href="approval_matrix.php" class="btn btn-link btn-block">Cancel</a><?php endif; ?>
-                </form>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-8">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0 font-weight-bold">Configured by plant</h5>
-            <?php if ($plantsInMatrix): ?>
-            <form method="get" class="form-inline">
-                <?php if ($editId): ?><input type="hidden" name="edit" value="<?= $editId ?>"><?php endif; ?>
-                <label class="mr-2 small text-muted">Plant</label>
-                <select name="plant" class="form-control form-control-sm" onchange="this.form.submit()">
-                    <option value="">All plants</option>
-                    <?php foreach ($plantsInMatrix as $pl): ?>
-                    <option value="<?= htmlspecialchars($pl) ?>" <?= $viewPlant === $pl ? 'selected' : '' ?>><?= htmlspecialchars($pl) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </form>
-            <?php endif; ?>
-        </div>
-
-        <?php if (!$matrixRows): ?>
-        <div class="alert alert-light border">No assignments yet. Add a role on the left.</div>
-        <?php else: ?>
-        <div class="card shadow-sm">
-            <div class="card-body p-0">
-                <table class="table table-bordered clgp-datatable mb-0">
-                    <thead>
-                        <tr>
-                            <th>Plant</th>
-                            <th>Dept</th>
-                            <th>Role</th>
-                            <th>Emp Code</th>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($matrixRows as $row): ?>
-                        <?php
-                            $canResend = !empty($row['clgp_user_id'])
-                                && ($row['user_status'] ?? '') === 'Active'
-                                && ($row['must_change_password'] ?? 'f') === 't';
-                        ?>
-                        <tr>
-                            <td class="font-weight-bold"><?= htmlspecialchars($row['plant']) ?></td>
-                            <td><?= htmlspecialchars($row['department'] === 'All' ? 'All departments' : $row['department']) ?></td>
-                            <td><span class="badge badge-info"><?= htmlspecialchars(clgp_step_label($row['approval_step'])) ?></span></td>
-                            <td><?= htmlspecialchars($row['emp_code']) ?></td>
-                            <td><?= htmlspecialchars($row['emp_name']) ?></td>
-                            <td><?= htmlspecialchars($row['emp_email']) ?></td>
-                            <td class="text-nowrap">
-                                <a href="?edit=<?= (int)$row['matrix_id'] ?><?= $viewPlant ? '&plant=' . urlencode($viewPlant) : '' ?>" class="btn btn-sm btn-outline-primary">Edit</a>
-                                <?php if ($canResend): ?>
-                                <form method="post" class="d-inline" onsubmit="return confirm('Resend login credentials email to <?= htmlspecialchars($row['emp_email'], ENT_QUOTES) ?>?')">
-                                    <input type="hidden" name="action" value="resend">
-                                    <input type="hidden" name="id" value="<?= (int)$row['matrix_id'] ?>">
-                                    <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
-                                    <button type="submit" class="btn btn-sm btn-outline-success" title="Resend credentials email">Resend</button>
-                                </form>
-                                <?php endif; ?>
-                                <form method="post" class="d-inline" onsubmit="return confirm('Remove this User?')">
-                                    <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="id" value="<?= (int)$row['matrix_id'] ?>">
-                                    <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
-                                    <button class="btn btn-sm btn-outline-danger">×</button>
-                                </form>
-                            </td>
-                        </tr>
+            <div class="form-row">
+                <div class="form-group col-md-4">
+                    <label>Plant * <small class="text-muted">(search AMS)</small></label>
+                    <input type="text" id="plantSearch" class="form-control" placeholder="Type plant e.g. JCP"
+                           value="<?= htmlspecialchars($editPlant) ?>" autocomplete="off" required>
+                    <input type="hidden" name="plant" id="plant" value="<?= htmlspecialchars($editPlant) ?>" required>
+                    <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
+                </div>
+                <div class="form-group col-md-4" id="departmentGroup">
+                    <label>Department *</label>
+                    <select name="department" id="department" class="form-control" required <?= $editPlant === '' ? 'disabled' : '' ?>>
+                        <option value="">— Select plant first —</option>
+                        <?php foreach ($editDepts as $d): ?>
+                        <option value="<?= htmlspecialchars($d) ?>" <?= $editDept === $d ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($d) ?>
+                        </option>
                         <?php endforeach; ?>
-                    </tbody>
-                </table>
+                    </select>
+                    <input type="hidden" name="department" id="departmentAll" value="All" disabled>
+                </div>
+                <div class="form-group col-md-4">
+                    <label>Role *</label>
+                    <select name="approval_step" id="approval_step" class="form-control" required>
+                        <?php foreach ($CLGP_APPROVAL_STEPS as $key => $label): ?>
+                        <option value="<?= $key ?>" <?= (($editRow['approval_step'] ?? '') === $key) ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($label) ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="text-muted" id="roleHint">Security and HR Head: pick plant only — one assignee per plant.</small>
+                </div>
             </div>
-        </div>
-        <?php endif; ?>
+
+            <div class="form-row">
+                <div class="form-group col-md-8">
+                    <label>Employee (AMS) *</label>
+                    <div id="empPickerCard" class="clgp-emp-picker <?= !empty($editRow['emp_code']) ? 'has-selection' : '' ?>">
+                        <div id="empPickerSelected" class="clgp-emp-picker-selected" <?= empty($editRow['emp_code']) ? 'style="display:none"' : '' ?>>
+                            <div class="clgp-emp-avatar" aria-hidden="true"><?php
+                                $n = trim((string) ($editRow['emp_name'] ?? 'E'));
+                                echo htmlspecialchars(strtoupper($n !== '' ? substr($n, 0, 1) : 'E'));
+                            ?></div>
+                            <div class="clgp-emp-meta">
+                                <div class="clgp-emp-name" id="empDisplayName"><?= htmlspecialchars($editRow['emp_name'] ?? '') ?></div>
+                                <div class="clgp-emp-code" id="empDisplayCode"><?= htmlspecialchars($editRow['emp_code'] ?? '') ?></div>
+                                <div class="clgp-emp-email" id="empDisplayEmail"><?= htmlspecialchars($editRow['emp_email'] ?? '') ?></div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-link text-danger px-1" id="empClearBtn" title="Clear selection">Clear</button>
+                        </div>
+                        <button type="button" class="clgp-emp-open-btn" id="empBrowseBtn"
+                                <?= ($editPlant === '' || $editDept === '') ? 'disabled' : '' ?>>
+                            <span class="clgp-emp-open-icon" aria-hidden="true"><i class="typcn typcn-zoom-outline"></i></span>
+                            <span class="clgp-emp-open-text" id="empBrowseLabel">
+                                <?= !empty($editRow['emp_code']) ? 'Change employee' : 'Click here to search &amp; select employee' ?>
+                            </span>
+                        </button>
+                        <small class="text-muted d-block mt-1" id="empCountHint">Select plant and department first, then click above.</small>
+                    </div>
+                    <input type="hidden" name="emp_code" id="emp_code" required value="<?= htmlspecialchars($editRow['emp_code'] ?? '') ?>">
+                    <input type="hidden" name="emp_name" id="emp_name" required value="<?= htmlspecialchars($editRow['emp_name'] ?? '') ?>">
+                    <input type="hidden" name="emp_email" id="emp_email" value="<?= htmlspecialchars($editRow['emp_email'] ?? '') ?>">
+                </div>
+                <div class="form-group col-md-4 d-flex align-items-end">
+                    <div class="w-100">
+                        <button type="submit" class="btn btn-clgp btn-block">Save &amp; Provision Login</button>
+                        <?php if ($editRow): ?><a href="approval_matrix.php<?= $viewPlant !== '' ? ('?plant=' . rawurlencode($viewPlant)) : '' ?>" class="btn btn-link btn-block">Cancel</a><?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </form>
     </div>
 </div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0 font-weight-bold">Configured by plant</h5>
+    <?php if ($plantsInMatrix): ?>
+    <form method="get" class="form-inline">
+        <?php if ($editId): ?><input type="hidden" name="edit" value="<?= $editId ?>"><?php endif; ?>
+        <label class="mr-2 small text-muted">Plant</label>
+        <select name="plant" class="form-control form-control-sm" onchange="this.form.submit()">
+            <option value="">All plants</option>
+            <?php foreach ($plantsInMatrix as $pl): ?>
+            <option value="<?= htmlspecialchars($pl) ?>" <?= $viewPlant === $pl ? 'selected' : '' ?>><?= htmlspecialchars($pl) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </form>
+    <?php endif; ?>
+</div>
+
+<?php if (!$matrixRows): ?>
+<div class="alert alert-light border">No assignments yet. Add a role above.</div>
+<?php else: ?>
+<div class="card shadow-sm">
+    <div class="card-body p-0 pt-3">
+        <table class="table table-bordered clgp-datatable mb-0">
+            <thead>
+                <tr>
+                    <th>Plant</th>
+                    <th>Dept</th>
+                    <th>Role</th>
+                    <th>Emp Code</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($matrixRows as $row): ?>
+                <?php
+                    $canResend = !empty($row['clgp_user_id'])
+                        && ($row['user_status'] ?? '') === 'Active'
+                        && ($row['must_change_password'] ?? 'f') === 't';
+                ?>
+                <tr>
+                    <td class="font-weight-bold"><?= htmlspecialchars($row['plant']) ?></td>
+                    <td><?= htmlspecialchars($row['department'] === 'All' ? 'All departments' : $row['department']) ?></td>
+                    <td><span class="badge badge-info"><?= htmlspecialchars(clgp_step_label($row['approval_step'])) ?></span></td>
+                    <td><?= htmlspecialchars($row['emp_code']) ?></td>
+                    <td><?= htmlspecialchars($row['emp_name']) ?></td>
+                    <td><?= htmlspecialchars($row['emp_email']) ?></td>
+                    <td class="text-nowrap">
+                        <a href="?edit=<?= (int)$row['matrix_id'] ?><?= $viewPlant ? '&plant=' . urlencode($viewPlant) : '' ?>" class="btn btn-sm btn-outline-primary">Edit</a>
+                        <?php if ($canResend): ?>
+                        <form method="post" class="d-inline" onsubmit="return confirm('Resend login credentials email to <?= htmlspecialchars($row['emp_email'], ENT_QUOTES) ?>?')">
+                            <input type="hidden" name="action" value="resend">
+                            <input type="hidden" name="id" value="<?= (int)$row['matrix_id'] ?>">
+                            <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
+                            <button type="submit" class="btn btn-sm btn-outline-success" title="Resend credentials email">Resend</button>
+                        </form>
+                        <?php endif; ?>
+                        <form method="post" class="d-inline" onsubmit="return confirm('Remove this User?')">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="id" value="<?= (int)$row['matrix_id'] ?>">
+                            <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
+                            <button class="btn btn-sm btn-outline-danger">×</button>
+                        </form>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+<?php endif; ?>
 
 <style>
 .clgp-emp-picker {

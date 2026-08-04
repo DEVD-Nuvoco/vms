@@ -54,3 +54,12 @@ New application numbers use prefix **`LIEO-YYYYMMDD-####`** (older rows may stil
 - Admin dashboard actions  
 
 If matrix email is missing for the next step, that notification is skipped (action still saves in the portal).
+
+## E. Contractor Master fields
+
+- Contractor Name
+- Contractor Email
+- Contractor Mobile Number
+- Contractor Type
+- Supervisor
+- Supervisor Mobile Number

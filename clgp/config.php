@@ -49,7 +49,9 @@ $CLGP_MATRIX_PLANT_ROLES = ['security', 'hr'];
 /** LC/EG approval chain (Time Office only creates — does not approve). */
 $CLGP_APP_CHAIN = ['supervisor', 'n1', 'hod'];
 
-$CLGP_VENDOR_TYPES = ['Supply', 'Temporary', 'Measurement'];
+$CLGP_CONTRACTOR_TYPES = ['Supply', 'Temporary', 'Measurement'];
+/** @deprecated use $CLGP_CONTRACTOR_TYPES */
+$CLGP_VENDOR_TYPES = $CLGP_CONTRACTOR_TYPES;
 
 $CLGP_PLANTS = ['Nimbol', 'Arasmeta', 'Mejia', 'Jojobera'];
 
@@ -509,14 +511,13 @@ function clgp_notify_reactivation_requested(array $contractor): void
     if (!$recipients) {
         return;
     }
-    $vendor = $contractor['vendor_name'] ?? '';
-    $cname = $contractor['contractor_name'] ?? '';
+    $cname = trim((string) ($contractor['contractor_name'] ?? ''));
     $subject = CLGP_APP_SHORT . ' :: Contractor reactivation requested';
     foreach ($recipients as $to) {
         $body = 'Dear ' . htmlspecialchars($to['name']) . ',<br><br>'
             . 'Admin has requested reactivation of contractor:<br><br>'
-            . '<strong>Vendor:</strong> ' . htmlspecialchars($vendor) . '<br>'
             . '<strong>Contractor:</strong> ' . htmlspecialchars($cname) . '<br>'
+            . '<strong>Type:</strong> ' . htmlspecialchars((string) ($contractor['contractor_type'] ?? $contractor['vendor_type'] ?? '')) . '<br>'
             . '<strong>Deactivated at:</strong> ' . htmlspecialchars($contractor['deactivated_at'] ?? '—') . '<br>'
             . '<strong>Reason:</strong> ' . htmlspecialchars($contractor['deactivation_reason'] ?? '—') . '<br><br>'
             . 'Please sign in to LIEO → Reactivation Requests to approve.';
