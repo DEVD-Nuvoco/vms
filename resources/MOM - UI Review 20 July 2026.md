@@ -6,7 +6,7 @@
 | **Date** | 20 July 2026 |
 | **Duration** | ~54 minutes |
 | **Prepared by** | Ashiq Ali |
-| **Reference** | `resources/requirment.md`, CLGP UI prototype (`clgp/`) |
+| **Reference** | `resources/requirment.md`, LIEO UI prototype (`lieo/`) |
 
 ---
 
@@ -23,7 +23,7 @@
 
 ## 1. Meeting objective
 
-Review the **CLGP UI prototype** for the **Early Out / Late IN** tracking module (paperless process for contract workmen), aligned with the broader requirement to integrate contractor management within the Visitor Management System look-and-feel.
+Review the **LIEO UI prototype** for the **Early Out / Late IN** tracking module (paperless process for contract workmen), aligned with the broader requirement to integrate contractor management within the Visitor Management System look-and-feel.
 
 Ashiq demonstrated the Admin panel prototype: Dashboard, Approval Matrix, Contractor Master, and Users & Roles.
 

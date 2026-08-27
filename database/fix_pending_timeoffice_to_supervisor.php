@@ -1,7 +1,7 @@
 <?php
-require_once dirname(__DIR__) . '/clgp/config.php';
-$db = clgp_db();
-$sql = "UPDATE tbl_clgp_application
+require_once dirname(__DIR__) . '/lieo/config.php';
+$db = lieo_db();
+$sql = "UPDATE tbl_lieo_application
         SET status='Pending_supervisor', current_step='supervisor'
         WHERE status='Pending_timeoffice' OR current_step='timeoffice'";
 if (!$db->query($sql)) {

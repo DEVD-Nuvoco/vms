@@ -6,7 +6,7 @@
     require 'PHPMailer/PHPMailer.php';
     require 'PHPMailer/SMTP.php';
 
-function sent_email($to, $toName = NULL, $toCC = NULL, $toBCC = NULL, $subject, $body, $attachment = NULL){
+function sent_email($to, $toName = null, $toCC = null, $toBCC = null, $subject = '', $body = '', $attachment = null){
     
 
 //    if(isset($_POST['submit'])){ 

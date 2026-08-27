@@ -1,7 +1,9 @@
-# Late Coming / Early Going Flow — User-Shared Understanding
+# Late Coming / Early Going Flow — Confirmed Understanding
 
-**Source:** `Late Coming Early Going Flow.docx` (shared 21 July 2026)  
-**Related:** [MOM - UI Review 20 July 2026.md](MOM%20-%20UI%20Review%2020%20July%202026.md), [requirment.md](requirment.md)
+**Source:** Original docx (21 July 2026) plus process changes confirmed Aug 2026.  
+**Related:** [Points.md](Points.md), [MOM - UI Review 20 July 2026.md](MOM%20-%20UI%20Review%2020%20July%202026.md)
+
+> Branding: **LIEO** = Late IN / Early Out. Folder/URL is `/lieo` (legacy `/lieo` redirects). Login is **separate from VMS**.
 
 ---
 
@@ -9,139 +11,147 @@
 
 | Item | Decision |
 |------|----------|
-| Terminology | **Contract Labour** → **Workman** |
-| Application title | **Access control for Contract Workman Entry/Exit Pass** |
-| Architecture | **Standalone app** — not inside VMS login selector |
-| UI reference | Existing **VMS / Azia** design approved for prototype |
+| Terminology | **Workman** (not Contract Labour) |
+| Application title | Access control for Contract Workman Entry/Exit Pass |
+| Architecture | Standalone LIEO app (not VMS login selector) |
+| UI | VMS / Azia theme |
 
 ---
 
-## 2. Admin dashboard
+## 2. Roles
 
-- Separate views for **IN** and **OUT**
-- Default: **today’s data only**
-- **Date filter** for historical records
-- Admin can manage contractors, approval matrix, users, reports
+| Role | Scope | Purpose |
+|------|--------|---------|
+| **Admin** | System | Assign / edit / delete **Time Office** users only; dashboard |
+| **Section Incharge** | Department | **Creates** Late IN / Early Out applications |
+| **Time Office** | Department | **Approves** after Section Incharge; owns plant masters (matrix, departments, contractors, notification mails) |
+| **N-1** | Department | Approver after Time Office |
+| **HOD** | Plant (one per plant) | Final approval before gate |
+| **Security** | Plant (one per plant) | Closes at gate with **mandatory remark** |
+| **HR Head** | Plant (one per plant) | Contractor reactivation decision |
 
----
+**Supervisor is not an approver.** Contractor Supervisor receives an **information email** only when an application is created.
 
-## 3. Approval matrix (master — who approves per plant/dept)
-
-Configure approvers by:
-
-| Field | Notes |
-|-------|--------|
-| Plant | |
-| Department | |
-| Supervisor | |
-| Head HR | Matrix assignee (re-activation / HR scenarios) |
-| N-1 | |
-| HOD | |
-
-- Employee picked from **AMS dropdown** (code auto-fills)
-- **No Access Type** on this screen
+**No contractor login.**
 
 ---
 
-## 4. Contractor master
-
-**Mandatory fields:**
-
-| Field |
-|-------|
-| Vendor Name |
-| Contractor Name |
-| Email ID |
-| Contractor Mobile Number |
-| Supervisor (Contact Person) |
-| Supervisor Mobile |
-
-**Vendor types:** Supply, Temporary, Measurement — **no Permanent**
-
-- Records: **deactivate only** (never hard delete)
-- **Re-activation** requires **Head HR** approval
-
----
-
-## 5. User roles (Phase 1)
-
-| Role | Purpose |
-|------|---------|
-| Admin | Masters, users, dashboard |
-| N-1 | Approver (2nd in chain) |
-| HOD | Approver (final in chain) |
-| Time Office | Creates requests on workman’s behalf; attests after approval |
-| Security | Gate execution |
-| HR Head | Contractor re-activation approval |
-
-> **Note:** Approval **flow** includes **Supervisor** as first step (see §6). Supervisor login/credentials come from Approval Matrix assignment (same as MOM).
-
-**No Contractor login** in Phase 1.
-
----
-
-## 6. Early Going / Late Coming workflow
-
-### Application creation
-
-1. Workman approaches **Time Office / Security**
-2. **Time Office** creates request with:
-   - Type: **Early Going** or **Late Coming**
-   - **Reason**
-
-### Approval flow
+## 3. Approval flow
 
 ```
-Supervisor → N-1 → HOD
+Section Incharge (create)
+  → Time Office
+  → N-1
+  → HOD
+  → Security (gate close + remark)
 ```
-
-### Execution flow
-
-1. After all approvals → **Time Office / Security** attests
-2. **Security** executes Early Going / Late Coming (gate OUT / IN)
 
 ```mermaid
 flowchart LR
-  TO[TimeOffice creates request]
-  S[Supervisor]
+  SI[Section Incharge creates]
+  TO[Time Office]
   N1[N-1]
   HOD[HOD]
-  Att[TimeOffice attests]
-  Sec[Security executes]
-  TO --> S --> N1 --> HOD --> Att --> Sec
+  Sec[Security closes at gate]
+  SI --> TO --> N1 --> HOD --> Sec
 ```
 
----
-
-## 7. User creation & credentials
-
-- On user create: email **Login ID + default password** (VMS pattern)
-- Admin assigns role
-- User **should change password on first login** (docx requirement)
+- Reject at any approval step returns to the **creator** (Section Incharge) by email.
+- After HOD approve, Security is notified to close at gate.
+- After gate close, creator is notified.
 
 ---
 
-## 8. Review cadence
+## 4. Approval Matrix
 
-- Project review meetings **twice per week**
+### Scope
 
----
+| Roles | Assigned by | Scoped to |
+|-------|-------------|-----------|
+| Section Incharge, Time Office, N-1 | See below | **Department** of a plant |
+| HOD, Security, HR Head | Time Office | **Plant** (one assignee each) |
 
-## 9. Reconciliation with MOM (20 July 2026)
+### Who maintains it
 
-| Topic | Docx | MOM | **Build decision** |
-|-------|------|-----|-------------------|
-| App title | Access control for Contract Workman Entry/Exit Pass | Contract Workman Gate Entry/Exit Pass | Use **docx title** (user doc is later) |
-| Approval chain | Supervisor → N-1 → HOD | Supervisor → N-1 → HOD | **Aligned** |
-| Matrix includes Head HR | Yes | HR for re-activation only | Store **Head HR in matrix** + re-activation workflow |
-| Contractor “Vendor Name” | Vendor Name | Company Name | UI label **Vendor Name**; same field |
-| Supervisor in role list | Not listed | Listed as approver | **Supervisor role/login required** for approval step |
-| Terminology | Late Coming / Early Going | Late IN / Early Out | UI: **Late Coming / Early Going**; DB enum can use `Late Entry` / `Early Leaving` |
-| First-login password change | Yes | Not stated | **Implement** forced change on first login |
-| Gate pass module | Not in this doc | Phase 2 separate | **Out of scope** for Phase 1 build |
+- **Admin only** assigns Time Office (add / edit / delete). Time Office **cannot** assign another Time Office for other departments.
+- **Time Office** assigns Section Incharge, N-1 (department-wise) and HOD, Security, HR Head (plant-wise). Time Office can **add / edit / delete** those assignments.
+- Employee picked from **AMS** (code / email auto-fill). First save emails LIEO login + temporary password.
 
 ---
 
-## 10. Phase 2 (not in this document)
+## 5. Department master (plant)
 
-Gate Pass Management (Insider/Outsider, 6-month validity) remains a **separate module** per MOM — see [requirment.md](requirment.md) §2–5.
+- Time Office can **add / update / delete** departments for **their plant**.
+- If the plant has departments in this master, **use those** everywhere (matrix, applications).
+- If the plant has **no** master departments, **fall back to AMS** departments.
+- Data visibility: users of one department see **only that department’s** applications/users (not other departments).
+
+---
+
+## 6. Contractor master
+
+Owned by **Time Office** (moved from Admin).
+
+**Fields:**
+
+- Contractor Name  
+- Contractor Email  
+- Contractor Mobile Number  
+- Contractor Type (Supply / Temporary / Measurement)  
+- Supervisor  
+- Supervisor Mobile Number  
+
+- Deactivate only (no hard delete).  
+- Reactivation: Time Office requests → **HR Head** approves/rejects.
+
+---
+
+## 7. Notification Mail (Time Office only)
+
+- Menu on **Time Office**, not Admin.  
+- Heading: **HR Head Contractor Activation Notification**.  
+- **Multiple CC emails per plant** (e.g. RCP: `ABC@gmail.com`, `PQR@gmail.com`).  
+- When Time Office requests reactivation, until HR Head **approve/reject**:
+  - **TO:** HR Head  
+  - **CC:** plant notification emails  
+
+---
+
+## 8. Dashboards
+
+Required for **Section Incharge**, **Time Office**, **N-1**, **HOD** (and Admin remains).
+
+Show (as relevant to the role): pending count, created apps, approved / rejected, gate completed. Date filter default = today.
+
+---
+
+## 9. Application tracking
+
+- Status, approval trail, remarks history  
+- Filters: plant, department, date, status, workman, contractor  
+
+---
+
+## 10. Emails (application)
+
+| Event | TO | Notes |
+|-------|----|--------|
+| Application created | Time Office (next approver) | **CC / extra:** contractor **Supervisor** (information only) |
+| Time Office / N-1 / HOD approve | Next role in chain | |
+| HOD approve | Security | Ready for gate |
+| Reject | Section Incharge (creator) | |
+| Gate close | Section Incharge (creator) | |
+
+---
+
+## 11. User credentials
+
+- New matrix user: email Login ID + temporary password.  
+- Forced change on first login.  
+- LIEO password is stored on `tbl_lieo_user` (not VMS `tbl_logindetail`).
+
+---
+
+## 12. Phase 2 (out of scope)
+
+Gate Pass Management (Insider/Outsider) remains a separate module.

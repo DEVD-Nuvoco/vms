@@ -3,11 +3,11 @@
  * After removing Time Office attestation: HOD-approved apps use current_step = gate.
  * Run once: php database/fix_approved_gate_step.php
  */
-require_once dirname(__DIR__) . '/clgp/config.php';
+require_once dirname(__DIR__) . '/lieo/config.php';
 
-$db = clgp_db();
+$db = lieo_db();
 $db->query(
-    "UPDATE tbl_clgp_application
+    "UPDATE tbl_lieo_application
      SET current_step = 'gate'
      WHERE status IN ('Approved', 'Attested')
        AND current_step IN ('attestation', '')"
