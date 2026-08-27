@@ -40,15 +40,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = lieo_resend_matrix_credentials((int) ($_POST['id'] ?? 0));
             $_SESSION['lieo_mess'] = $result['message'] ?? ($result['ok'] ? 'Credentials resent.' : 'Resend failed.');
         } elseif ($action === 'email_test') {
-            $testId = (int) ($_POST['id'] ?? 0);
-            // Re-open last preview when local=1 and no specific row requested.
-            if ($testId < 1 && lieo_is_test_mail_mode() && lieo_restore_last_test_mails()) {
-                $_SESSION['lieo_mess'] = 'Showing last LIEO email test preview.';
+            // Local WAMP only — never expose email test on live server.
+            if (!lieo_is_test_mail_mode()) {
+                $_SESSION['lieo_mess'] = 'Email test is only available in local development.';
+                $_SESSION['lieo_mess_type'] = 'danger';
             } else {
-                $result = lieo_matrix_email_test($testId);
-                $_SESSION['lieo_mess'] = $result['message'] ?? 'Email test done.';
-                if (empty($result['ok'])) {
-                    $_SESSION['lieo_mess_type'] = 'danger';
+                $testId = (int) ($_POST['id'] ?? 0);
+                // Re-open last preview when local=1 and no specific row requested.
+                if ($testId < 1 && lieo_restore_last_test_mails()) {
+                    $_SESSION['lieo_mess'] = 'Showing last LIEO email test preview.';
+                } else {
+                    $result = lieo_matrix_email_test($testId);
+                    $_SESSION['lieo_mess'] = $result['message'] ?? 'Email test done.';
+                    if (empty($result['ok'])) {
+                        $_SESSION['lieo_mess_type'] = 'danger';
+                    }
                 }
             }
         }
@@ -231,6 +237,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <?php if (!$matrixRows): ?>
 <div class="alert alert-light border">No assignments yet. Add a role above.</div>
+<?php if (lieo_is_test_mail_mode()): ?>
 <div class="d-flex justify-content-end mt-2">
     <form method="post" class="m-0">
         <input type="hidden" name="action" value="email_test">
@@ -238,6 +245,7 @@ require_once __DIR__ . '/../includes/header.php';
         <button type="submit" class="btn btn-sm btn-outline-secondary">Email test</button>
     </form>
 </div>
+<?php endif; ?>
 <?php else: ?>
 <div class="card shadow-sm">
     <div class="card-body p-0 pt-3">
@@ -295,6 +303,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <?php endforeach; ?>
             </tbody>
         </table>
+        <?php if (lieo_is_test_mail_mode()): ?>
         <div class="d-flex justify-content-end px-3 py-3 border-top bg-white">
             <form method="post" class="m-0">
                 <input type="hidden" name="action" value="email_test">
@@ -302,6 +311,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <button type="submit" class="btn btn-sm btn-outline-secondary" title="Preview or send a LIEO test email">Email test</button>
             </form>
         </div>
+        <?php endif; ?>
     </div>
 </div>
 <?php endif; ?>
