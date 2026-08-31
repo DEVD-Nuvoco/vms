@@ -14,7 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $new = trim($_POST['new_password'] ?? '');
     $confirm = trim($_POST['confirm_password'] ?? '');
 
-    if (!$forced && $current === '') {
+    if (lieo_is_local_dev() && lieo_is_local_test_user_id((int) ($_SESSION['lieo_user_id'] ?? 0))) {
+        $error = 'Local test accounts are code-only and do not use the database. Password change is not required.';
+    } elseif (!$forced && $current === '') {
         $error = 'Please enter your current password.';
     } elseif (strlen($new) < 6) {
         $error = 'New password must be at least 6 characters.';

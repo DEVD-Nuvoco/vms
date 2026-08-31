@@ -32,7 +32,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'emp_name' => $_POST['emp_name'] ?? '',
                 'emp_email' => $_POST['emp_email'] ?? '',
             ], $id);
-            $_SESSION['lieo_mess'] = $result['ok'] ? ($result['message'] ?? 'Approval rule saved.') : $result['message'];
+            $flashMsg = trim((string) ($result['message'] ?? ''));
+            $_SESSION['lieo_mess'] = $result['ok']
+                ? ($flashMsg !== '' ? $flashMsg : 'Approval rule saved.')
+                : ($flashMsg !== '' ? $flashMsg : 'Could not save approval rule.');
+            if (!$result['ok']) {
+                $_SESSION['lieo_mess_type'] = 'danger';
+            }
         } elseif ($action === 'delete') {
             lieo_delete_matrix_rule((int) ($_POST['id'] ?? 0));
             $_SESSION['lieo_mess'] = 'Rule deactivated.';
@@ -117,6 +123,18 @@ if ($lieoMatrixLockPlant) {
 $editDept = $editRow['department'] ?? '';
 $editDepts = $editPlant !== '' ? lieo_list_departments_for_plant($editPlant) : [];
 
+$lieoMatrixAssignments = array_map(static function (array $r): array {
+    return [
+        'matrix_id' => (int) ($r['matrix_id'] ?? 0),
+        'plant' => lieo_ams_canonical_plant($r['plant'] ?? ''),
+        'department' => (string) ($r['department'] ?? ''),
+        'approval_step' => (string) ($r['approval_step'] ?? ''),
+        'emp_code' => (string) ($r['emp_code'] ?? ''),
+        'emp_name' => (string) ($r['emp_name'] ?? ''),
+        'emp_email' => (string) ($r['emp_email'] ?? ''),
+    ];
+}, $allMatrix);
+
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -127,6 +145,7 @@ require_once __DIR__ . '/../includes/header.php';
     <?php else: ?>
         Assign <strong>Section Incharge</strong> and <strong>N-1</strong> by department, and <strong>HOD / Security / HR Head</strong> once per plant.
         You cannot assign Time Office. Flow: Section Incharge creates → Time Office → N-1 → HOD → Security at gate.
+        <strong>LIEO Department</strong> (for approvals) may differ from the employee&apos;s AMS department — pick the employee by plant, then choose the LIEO department before save.
     <?php endif; ?>
     Saving creates or updates the LIEO login — credentials are emailed; the user must change password on first sign-in.
 </p>
@@ -149,7 +168,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
                 </div>
                 <div class="form-group col-md-4" id="departmentGroup">
-                    <label>Department *</label>
+                    <label>LIEO Department *</label>
                     <select name="department" id="department" class="form-control" required <?= $editPlant === '' ? 'disabled' : '' ?>>
                         <option value="">— Select plant first —</option>
                         <?php foreach ($editDepts as $d): ?>
@@ -158,6 +177,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </option>
                         <?php endforeach; ?>
                     </select>
+                    <small class="text-muted d-block mt-1">For LIEO approvals. Can differ from AMS.</small>
                     <input type="hidden" name="department" id="departmentAll" value="All" disabled>
                 </div>
                 <div class="form-group col-md-4">
@@ -169,7 +189,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </option>
                         <?php endforeach; ?>
                     </select>
-                    <small class="text-muted" id="roleHint">Security and HR Head: pick plant only — one assignee per plant.</small>
+                    <small class="text-muted" id="roleHint">HOD, Security and HR Head: pick plant only — one assignee per plant.</small>
                 </div>
             </div>
 
@@ -186,17 +206,18 @@ require_once __DIR__ . '/../includes/header.php';
                                 <div class="lieo-emp-name" id="empDisplayName"><?= htmlspecialchars($editRow['emp_name'] ?? '') ?></div>
                                 <div class="lieo-emp-code" id="empDisplayCode"><?= htmlspecialchars($editRow['emp_code'] ?? '') ?></div>
                                 <div class="lieo-emp-email" id="empDisplayEmail"><?= htmlspecialchars($editRow['emp_email'] ?? '') ?></div>
+                                <div class="lieo-emp-ams-dept text-muted small" id="empDisplayAmsDept" style="display:none"></div>
                             </div>
                             <button type="button" class="btn btn-sm btn-link text-danger px-1" id="empClearBtn" title="Clear selection">Clear</button>
                         </div>
                         <button type="button" class="lieo-emp-open-btn" id="empBrowseBtn"
-                                <?= ($editPlant === '' || $editDept === '') ? 'disabled' : '' ?>>
+                                <?= $editPlant === '' ? 'disabled' : '' ?>>
                             <span class="lieo-emp-open-icon" aria-hidden="true"><i class="typcn typcn-zoom-outline"></i></span>
                             <span class="lieo-emp-open-text" id="empBrowseLabel">
                                 <?= !empty($editRow['emp_code']) ? 'Change employee' : 'Click here to search &amp; select employee' ?>
                             </span>
                         </button>
-                        <small class="text-muted d-block mt-1" id="empCountHint">Select plant and department first, then click above.</small>
+                        <small class="text-muted d-block mt-1" id="empCountHint">Select plant first, then pick an employee (all AMS departments for that plant).</small>
                     </div>
                     <input type="hidden" name="emp_code" id="emp_code" required value="<?= htmlspecialchars($editRow['emp_code'] ?? '') ?>">
                     <input type="hidden" name="emp_name" id="emp_name" required value="<?= htmlspecialchars($editRow['emp_name'] ?? '') ?>">
@@ -417,6 +438,8 @@ require_once __DIR__ . '/../includes/header.php';
 .lieo-emp-table td { vertical-align: middle; }
 .lieo-emp-row-name { font-weight: 600; color: #0f172a; }
 .lieo-emp-row-email { font-size: 12px; color: #64748b; }
+.lieo-emp-ams-dept { font-size: 12px; margin-top: 2px; }
+.lieo-emp-row-dept { font-size: 12px; color: #475569; }
 #lieoEmpBrowseModal { z-index: 2000 !important; }
 #lieoEmpBrowseModal .modal-dialog,
 #lieoEmpBrowseModal .modal-content {
@@ -452,11 +475,12 @@ require_once __DIR__ . '/../includes/header.php';
                             <tr>
                                 <th style="width:110px;">Code</th>
                                 <th>Name / Email</th>
+                                <th style="width:160px;">AMS Dept</th>
                                 <th style="width:90px;"></th>
                             </tr>
                         </thead>
                         <tbody id="empModalBody">
-                            <tr><td colspan="3" class="text-muted text-center py-4">Loading employees…</td></tr>
+                            <tr><td colspan="4" class="text-muted text-center py-4">Loading employees…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -491,6 +515,9 @@ require_once __DIR__ . '/../includes/header.php';
     lieoWhenReady(function () {
     var $ = window.jQuery;
     var plantOnlyRoles = <?= json_encode(array_values($LIEO_MATRIX_PLANT_ROLES)) ?>;
+    var roleLabels = <?= json_encode($lieoMatrixSteps) ?>;
+    var matrixAssignments = <?= json_encode($lieoMatrixAssignments, JSON_UNESCAPED_UNICODE) ?>;
+    var editMatrixId = <?= (int) ($editRow['matrix_id'] ?? 0) ?>;
     var plantTimer = null, empFilterTimer = null;
     var empCache = [];
     var empLoadedFor = '';
@@ -569,14 +596,34 @@ require_once __DIR__ . '/../includes/header.php';
         return plantOnlyRoles.indexOf($role.value) >= 0;
     }
 
+    function amsDeptLabel(emp) {
+        if (!emp) return '—';
+        var d = String(emp.Department || emp.department || '').trim();
+        if (!d && emp.empDepartment) {
+            d = String(emp.empDepartment).trim();
+        }
+        return d || '—';
+    }
+
+    function setAmsDeptDisplay(text) {
+        var el = document.getElementById('empDisplayAmsDept');
+        if (!el) return;
+        var label = (text || '').trim();
+        if (label) {
+            el.textContent = 'AMS Department: ' + label;
+            el.style.display = '';
+        } else {
+            el.textContent = '';
+            el.style.display = 'none';
+        }
+    }
+
     function canLoadEmployees() {
-        if (!$plant.value) return false;
-        if (isPlantOnlyRole()) return true;
-        return !!$dept.value;
+        return !!$plant.value;
     }
 
     function loadKey() {
-        return $plant.value + '|' + (isPlantOnlyRole() ? 'All' : ($dept.value || ''));
+        return $plant.value || '';
     }
 
     function initialFromName(name) {
@@ -598,17 +645,26 @@ require_once __DIR__ . '/../includes/header.php';
             $deptAll.removeAttribute('name');
             $dept.setAttribute('name', 'department');
         }
-        var ok = canLoadEmployees();
-        $browseBtn.disabled = !ok;
-        if (ok) {
+        var hasPlant = canLoadEmployees();
+        $browseBtn.disabled = !hasPlant;
+        if (hasPlant) {
             setBrowseLabel(document.getElementById('emp_code').value ? 'Change employee' : 'Click here to search & select employee');
-            $countHint.textContent = 'Click the box above to open the searchable employee list.';
+            $countHint.textContent = 'Employees load by plant (all AMS departments). Choose LIEO department before save.';
             preloadEmployees(false, true);
         } else {
             empCache = [];
             empLoadedFor = '';
-            setBrowseLabel('Select plant & department first');
-            $countHint.textContent = 'Select plant and department first, then click above.';
+            setBrowseLabel('Select plant first');
+            $countHint.textContent = 'Select plant first, then pick an employee (all AMS departments for that plant).';
+        }
+    }
+
+    function refreshAmsDeptFromCache() {
+        var code = document.getElementById('emp_code').value;
+        if (!code || !empCache.length) return;
+        var found = empCache.find(function (e) { return String(e.empCode) === String(code); });
+        if (found) {
+            setAmsDeptDisplay(amsDeptLabel(found));
         }
     }
 
@@ -623,11 +679,13 @@ require_once __DIR__ . '/../includes/header.php';
             document.getElementById('empDisplayCode').textContent = code;
             document.getElementById('empDisplayEmail').textContent = email || '—';
             $pickerSelected.querySelector('.lieo-emp-avatar').textContent = initialFromName(name);
+            refreshAmsDeptFromCache();
             setBrowseLabel('Change employee');
         } else {
             $pickerCard.classList.remove('has-selection');
             $pickerSelected.style.display = 'none';
-            setBrowseLabel(canLoadEmployees() ? 'Click here to search & select employee' : 'Select plant & department first');
+            setAmsDeptDisplay('');
+            setBrowseLabel(canLoadEmployees() ? 'Click here to search & select employee' : 'Select plant first');
         }
     }
 
@@ -636,6 +694,7 @@ require_once __DIR__ . '/../includes/header.php';
         document.getElementById('emp_name').value = '';
         document.getElementById('emp_email').value = '';
         editEmpCode = '';
+        setAmsDeptDisplay('');
         updatePickerUI();
     }
 
@@ -644,6 +703,7 @@ require_once __DIR__ . '/../includes/header.php';
         document.getElementById('emp_name').value = emp.empName || '';
         document.getElementById('emp_email').value = emp.empBusiEmail || '';
         editEmpCode = String(emp.empCode || '');
+        setAmsDeptDisplay(amsDeptLabel(emp));
         updatePickerUI();
         hideEmpModal();
     }
@@ -653,13 +713,13 @@ require_once __DIR__ . '/../includes/header.php';
         var selected = document.getElementById('emp_code').value;
         var matched = empCache.filter(function (e) {
             if (!q) return true;
-            var hay = ((e.empCode || '') + ' ' + (e.empName || '') + ' ' + (e.empBusiEmail || '')).toLowerCase();
+            var hay = ((e.empCode || '') + ' ' + (e.empName || '') + ' ' + (e.empBusiEmail || '') + ' ' + amsDeptLabel(e)).toLowerCase();
             return hay.indexOf(q) !== -1;
         });
         $modalBody.innerHTML = '';
         if (!matched.length) {
-            $modalBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">'
-                + (empCache.length ? 'No matches for your search.' : 'No employees found for this plant/department.')
+            $modalBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">'
+                + (empCache.length ? 'No matches for your search.' : 'No employees found for this plant.')
                 + '</td></tr>';
             $modalCount.textContent = 'Showing 0 of ' + empCache.length;
             return;
@@ -671,9 +731,11 @@ require_once __DIR__ . '/../includes/header.php';
             tr.innerHTML =
                 '<td><code>' + code + '</code></td>' +
                 '<td><div class="lieo-emp-row-name"></div><div class="lieo-emp-row-email"></div></td>' +
+                '<td><div class="lieo-emp-row-dept"></div></td>' +
                 '<td class="text-right"><button type="button" class="btn btn-sm btn-lieo">Select</button></td>';
             tr.querySelector('.lieo-emp-row-name').textContent = e.empName || '';
             tr.querySelector('.lieo-emp-row-email').textContent = e.empBusiEmail || '—';
+            tr.querySelector('.lieo-emp-row-dept').textContent = amsDeptLabel(e);
             tr.addEventListener('click', function (ev) {
                 if (ev.target.closest('button') || ev.target === tr || tr.contains(ev.target)) {
                     selectEmployee(e);
@@ -693,9 +755,7 @@ require_once __DIR__ . '/../includes/header.php';
             return Promise.resolve(empCache);
         }
         var plant = $plant.value;
-        var dept = isPlantOnlyRole() ? '' : $dept.value;
         var url = '../api/search_employee.php?all=1&plant=' + encodeURIComponent(plant);
-        if (dept) url += '&department=' + encodeURIComponent(dept);
         $countHint.textContent = 'Loading employee directory…';
         return fetch(url)
             .then(function (r) { return r.json(); })
@@ -703,16 +763,19 @@ require_once __DIR__ . '/../includes/header.php';
                 empCache = rows || [];
                 empLoadedFor = key;
                 $countHint.textContent = empCache.length
-                    ? (empCache.length + ' employees available — click above to pick.')
-                    : 'No employees found for this plant/department.';
+                    ? (empCache.length + ' employees available for this plant — click above to pick.')
+                    : 'No employees found for this plant.';
                 if (autoSelect && editEmpCode) {
                     var found = empCache.find(function (e) { return String(e.empCode) === String(editEmpCode); });
                     if (found) {
                         document.getElementById('emp_code').value = String(found.empCode || '');
                         document.getElementById('emp_name').value = found.empName || '';
                         document.getElementById('emp_email').value = found.empBusiEmail || '';
+                        setAmsDeptDisplay(amsDeptLabel(found));
                         updatePickerUI();
                     }
+                } else {
+                    refreshAmsDeptFromCache();
                 }
                 return empCache;
             })
@@ -729,15 +792,14 @@ require_once __DIR__ . '/../includes/header.php';
             if (window.lieoAlert) {
                 lieoAlert({
                     title: 'Almost there',
-                    message: isPlantOnlyRole() ? 'Select a plant first.' : 'Select plant and department first.'
+                    message: 'Select a plant first.'
                 });
             }
             return;
         }
-        var scope = $plant.value + (isPlantOnlyRole() ? ' · All departments' : (' · ' + $dept.value));
-        $modalScope.textContent = scope;
+        $modalScope.textContent = $plant.value + ' · All AMS departments';
         $modalSearch.value = '';
-        $modalBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Loading employees…</td></tr>';
+        $modalBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">Loading employees…</td></tr>';
         $modalCount.textContent = 'Loading…';
         showEmpModal();
         preloadEmployees(false, false).then(function () {
@@ -842,11 +904,54 @@ require_once __DIR__ . '/../includes/header.php';
     });
 
     $dept.addEventListener('change', function () {
-        clearEmployeeFields();
-        syncDepartmentField();
+        if (canLoadEmployees() && document.getElementById('emp_code').value) {
+            $countHint.textContent = 'LIEO department is for approvals — may differ from the AMS department shown on the employee.';
+        }
     });
 
+    function findReplaceConflict() {
+        var plant = ($plant.value || '').trim();
+        var role = $role.value;
+        var dept = isPlantOnlyRole() ? 'All' : ($dept.value || '').trim();
+        var empCode = String(document.getElementById('emp_code').value || '').trim();
+        if (!plant || !role || (!isPlantOnlyRole() && !dept) || !empCode) {
+            return null;
+        }
+        for (var i = 0; i < matrixAssignments.length; i++) {
+            var row = matrixAssignments[i];
+            if (editMatrixId && row.matrix_id === editMatrixId) {
+                continue;
+            }
+            if (row.plant !== plant || row.department !== dept || row.approval_step !== role) {
+                continue;
+            }
+            if (String(row.emp_code) === empCode) {
+                continue;
+            }
+            return row;
+        }
+        return null;
+    }
+
+    function buildReplaceConfirmMessage(conflict) {
+        var roleLabel = roleLabels[$role.value] || $role.value;
+        var plant = ($plant.value || '').trim();
+        var dept = ($dept.value || '').trim();
+        var who = conflict.emp_name || conflict.emp_email || ('Employee ' + conflict.emp_code);
+        if (isPlantOnlyRole()) {
+            return who + ' is currently ' + roleLabel + ' for ' + plant + '. Do you want to replace with the selected employee?';
+        }
+        return who + ' is currently ' + roleLabel + ' for ' + plant + ' · ' + dept + '. Do you want to replace with the selected employee?';
+    }
+
     document.getElementById('matrixForm').addEventListener('submit', function (ev) {
+        var form = ev.target;
+
+        if (form.getAttribute('data-lieo-replace-confirmed') === '1') {
+            form.removeAttribute('data-lieo-replace-confirmed');
+            return;
+        }
+
         if (!$plant.value || !document.getElementById('emp_code').value) {
             ev.preventDefault();
             if (window.lieoAlert) {
@@ -857,8 +962,40 @@ require_once __DIR__ . '/../includes/header.php';
         if (!isPlantOnlyRole() && !$dept.value) {
             ev.preventDefault();
             if (window.lieoAlert) {
-                lieoAlert({ title: 'Missing department', message: 'Please select Department.' });
+                lieoAlert({ title: 'Missing LIEO department', message: 'Please select the LIEO department used for approvals.' });
             }
+            return;
+        }
+
+        var conflict = findReplaceConflict();
+        if (!conflict) {
+            return;
+        }
+
+        ev.preventDefault();
+        var msg = buildReplaceConfirmMessage(conflict);
+        if (window.lieoConfirm) {
+            window.lieoConfirm({
+                title: 'Replace existing assignment?',
+                message: msg,
+                confirmText: 'Replace',
+                variant: 'info'
+            }).then(function (ok) {
+                if (!ok) {
+                    return;
+                }
+                form.setAttribute('data-lieo-replace-confirmed', '1');
+                if (typeof form.requestSubmit === 'function') {
+                    form.requestSubmit();
+                } else {
+                    form.submit();
+                }
+            });
+            return;
+        }
+        if (window.confirm(msg)) {
+            form.setAttribute('data-lieo-replace-confirmed', '1');
+            form.submit();
         }
     });
 

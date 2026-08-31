@@ -547,16 +547,19 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
 if (!empty($_SESSION['lieo_alert']) && is_array($_SESSION['lieo_alert'])) {
     unset($_SESSION['lieo_mess'], $_SESSION['lieo_mess_type']);
 } elseif (!empty($_SESSION['lieo_mess'])) {
+    $flashMess = trim((string) $_SESSION['lieo_mess']);
+    if ($flashMess !== '') {
     $messType = $_SESSION['lieo_mess_type'] ?? 'success';
     if (!in_array($messType, ['success', 'danger', 'warning', 'info'], true)) {
         $messType = 'success';
     }
     ?>
 <div class="alert alert-dismissible fade show m-0 lieo-flash lieo-flash-<?= htmlspecialchars($messType) ?>" role="alert">
-    <?= htmlspecialchars($_SESSION['lieo_mess']) ?>
+    <?= htmlspecialchars($flashMess) ?>
     <button type="button" class="close py-1" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
 </div>
     <?php
+    }
     unset($_SESSION['lieo_mess'], $_SESSION['lieo_mess_type']);
 }
 ?>

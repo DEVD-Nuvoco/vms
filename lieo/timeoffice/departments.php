@@ -54,8 +54,8 @@ require_once __DIR__ . '/../includes/header.php';
 
 <h2 class="lieo-title mb-2">Department Master — <?= htmlspecialchars($plant) ?></h2>
 <p class="text-muted mb-3">
-    If this plant has departments here, they are used in the matrix and applications.
-    If the list is empty, LIEO falls back to AMS departments
+    AMS departments for this plant are always available in the matrix and applications.
+    Add extra departments here only when they are not already in AMS
     (<?= count($amsHint) ?> AMS departments currently).
 </p>
 
@@ -129,7 +129,7 @@ require_once __DIR__ . '/../includes/header.php';
             <thead><tr><th>Department</th><th>Status</th><th></th></tr></thead>
             <tbody>
             <?php if (!$rows): ?>
-                <tr><td colspan="3" class="text-muted text-center">No plant departments yet — AMS list is used.</td></tr>
+                <tr><td colspan="3" class="text-muted text-center">No extra plant departments — AMS list is used in the matrix.</td></tr>
             <?php endif; ?>
             <?php foreach ($rows as $r): ?>
                 <tr>

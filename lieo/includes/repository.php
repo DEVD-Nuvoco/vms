@@ -75,9 +75,16 @@ function lieo_ensure_lieo_auth_schema(): void
 
 function lieo_find_user_by_login(string $email, string $password): ?array
 {
+    $email = trim($email);
+    if (lieo_is_local_dev()) {
+        $localUser = lieo_find_local_test_user_by_email($email);
+        if ($localUser) {
+            return $localUser;
+        }
+    }
+
     lieo_ensure_lieo_auth_schema();
     $db = lieo_db();
-    $email = trim($email);
     $stmt = $db->prepare(
         "SELECT *
          FROM tbl_lieo_user
@@ -109,9 +116,13 @@ function lieo_find_user_by_login(string $email, string $password): ?array
  */
 function lieo_login_diagnose(string $email, string $password): string
 {
+    $email = trim($email);
+    if (lieo_is_local_dev() && lieo_find_local_test_user_by_email($email)) {
+        return 'ok';
+    }
+
     lieo_ensure_lieo_auth_schema();
     $db = lieo_db();
-    $email = trim($email);
     $stmt = $db->prepare('SELECT status, password FROM tbl_lieo_user WHERE email = ? LIMIT 1');
     $stmt->bind_param('s', $email);
     $stmt->execute();
@@ -1018,7 +1029,7 @@ function lieo_list_ams_departments(string $plant): array
 }
 
 /**
- * Departments for a plant: plant master if any Active rows, else AMS.
+ * Departments for a plant: AMS list plus any extra plant master rows (merged, deduped).
  * @return list<string>
  */
 function lieo_list_departments_for_plant(string $plant): array
@@ -1027,13 +1038,38 @@ function lieo_list_departments_for_plant(string $plant): array
     if ($plant === '') {
         return [];
     }
-    $master = lieo_list_plant_departments($plant, true);
-    if ($master) {
-        return array_values(array_map(static function ($r) {
-            return $r['department_name'];
-        }, $master));
+
+    $merged = [];
+    $seen = [];
+
+    foreach (lieo_list_ams_departments($plant) as $dept) {
+        $dept = lieo_normalize_dept_name((string) $dept);
+        if ($dept === '') {
+            continue;
+        }
+        $key = strtolower($dept);
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $merged[] = $dept;
     }
-    return lieo_list_ams_departments($plant);
+
+    foreach (lieo_list_plant_departments($plant, true) as $row) {
+        $dept = lieo_normalize_dept_name((string) ($row['department_name'] ?? ''));
+        if ($dept === '') {
+            continue;
+        }
+        $key = strtolower($dept);
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $merged[] = $dept;
+    }
+
+    natcasesort($merged);
+    return array_values($merged);
 }
 
 /** @return list<array<string,mixed>> */
