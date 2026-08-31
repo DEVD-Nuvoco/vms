@@ -1108,6 +1108,32 @@ function lieo_list_all_plant_departments(?string $plant = null): array
 }
 
 /**
+ * Plants that have at least one row in plant department master.
+ * @return list<string>
+ */
+function lieo_list_plants_with_department_data(): array
+{
+    $res = lieo_db()->query(
+        "SELECT DISTINCT plant FROM tbl_lieo_plant_department
+         WHERE plant IS NOT NULL AND TRIM(plant) != ''"
+    );
+    if (!$res) {
+        return [];
+    }
+    $plants = [];
+    while ($row = $res->fetch_assoc()) {
+        $code = lieo_ams_canonical_plant((string) ($row['plant'] ?? ''));
+        if ($code === '') {
+            continue;
+        }
+        $plants[strtoupper($code)] = $code;
+    }
+    $list = array_values($plants);
+    natcasesort($list);
+    return array_values($list);
+}
+
+/**
  * Active Time Office matrix rows for a plant (for department master reference).
  * @return list<array<string,mixed>>
  */

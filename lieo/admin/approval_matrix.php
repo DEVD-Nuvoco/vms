@@ -172,11 +172,15 @@ require_once __DIR__ . '/../includes/header.php';
                     <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
                 </div>
                 <div class="form-group col-md-4" id="departmentGroup">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
+                    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap">
                         <label class="mb-0">LIEO Department *</label>
-                        <button type="button" class="btn btn-link btn-sm p-0 text-success font-weight-bold" id="lieoAddDeptOpen">
-                            + Add Department(s)
-                        </button>
+                        <span class="text-nowrap">
+                            <button type="button" class="btn btn-link btn-sm p-0 text-muted" id="lieoToggleAllDepts">Show all departments</button>
+                            <span class="text-muted mx-1">·</span>
+                            <button type="button" class="btn btn-link btn-sm p-0 text-success font-weight-bold" id="lieoAddDeptOpen">
+                                + Add Department(s)
+                            </button>
+                        </span>
                     </div>
                     <select name="department" id="department" class="form-control" required <?= $editPlant === '' ? 'disabled' : '' ?>>
                         <option value="">— Select plant first —</option>
@@ -186,6 +190,13 @@ require_once __DIR__ . '/../includes/header.php';
                         </option>
                         <?php endforeach; ?>
                     </select>
+                    <div id="lieoAllDeptsBox" class="lieo-all-depts-box" style="display:none;">
+                        <div class="lieo-all-depts-head">
+                            <span>All departments for this plant</span>
+                            <span id="lieoAllDeptsCount" class="text-muted"></span>
+                        </div>
+                        <div id="lieoAllDeptsList" class="lieo-all-depts-list"></div>
+                    </div>
                     <small class="text-muted d-block mt-1">
                         AMS departments are included automatically. Use <strong>Add Department(s)</strong> for extras.
                         <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoDeptMasterLink">Manage in Department Master</a>
@@ -468,6 +479,84 @@ require_once __DIR__ . '/../includes/header.php';
 }
 .lieo-add-dept-hint { font-size: .8125rem; color: #64748b; }
 .lieo-add-dept-result { font-size: .8125rem; max-height: 120px; overflow: auto; }
+.lieo-add-dept-ams-ref {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: .65rem .75rem;
+    margin-bottom: .85rem;
+    max-height: 140px;
+    overflow: auto;
+    cursor: pointer;
+}
+.lieo-add-dept-ams-ref.is-expanded {
+    max-height: none;
+    overflow: visible;
+}
+.lieo-add-dept-ams-ref h6 { cursor: pointer; user-select: none; }
+.lieo-all-depts-box {
+    margin-top: .5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    overflow: hidden;
+}
+.lieo-all-depts-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: .4rem .65rem;
+    font-size: .75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    color: #64748b;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+}
+.lieo-all-depts-list {
+    max-height: 200px;
+    overflow: auto;
+    padding: .45rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+}
+.lieo-all-depts-item {
+    border: 1px solid #bbf7d0;
+    background: #ecfdf3;
+    color: #166534;
+    border-radius: 999px;
+    padding: .25rem .65rem;
+    font-size: .8125rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.lieo-all-depts-item:hover,
+.lieo-all-depts-item.is-selected {
+    background: #42bb52;
+    border-color: #42bb52;
+    color: #fff;
+}
+.lieo-add-dept-ams-ref h6 {
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin: 0 0 .5rem;
+}
+.lieo-add-dept-ams-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.lieo-add-dept-ams-chip {
+    display: inline-block;
+    padding: .22rem .6rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 600;
+    color: #166534;
+    background: #ecfdf3;
+    border: 1px solid #bbf7d0;
+}
 </style>
 
 <div class="modal fade" id="lieoAddDeptModal" tabindex="-1" role="dialog" aria-hidden="true">
@@ -481,13 +570,18 @@ require_once __DIR__ . '/../includes/header.php';
                 <button type="button" class="close" id="lieoAddDeptClose" aria-label="Close"><span>&times;</span></button>
             </div>
             <div class="modal-body">
+                <div class="lieo-add-dept-ams-ref" id="lieoAddDeptAmsRef" title="Click to expand/collapse">
+                    <h6>AMS departments on this plant <span id="lieoAddDeptAmsCount" class="text-muted font-weight-normal"></span>
+                        <small class="text-muted font-weight-normal">(click to show all)</small></h6>
+                    <div id="lieoAddDeptAmsChips" class="lieo-add-dept-ams-chips text-muted small">Loading…</div>
+                </div>
                 <p class="lieo-add-dept-hint mb-2">
-                    Enter one department per line. AMS departments are already in the list — add only names that are missing.
+                    These AMS names are already in the LIEO dropdown. Add only names that are <strong>not</strong> listed above.
                     Full edit/deactivate is in <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoAddDeptMasterLink">Department Master</a>.
                 </p>
-                <label for="lieoAddDeptNames" class="font-weight-bold small">Department name(s)</label>
-                <textarea id="lieoAddDeptNames" class="form-control" rows="5"
-                          placeholder="Sales&#10;Projects&#10;Maintenance"></textarea>
+                <label for="lieoAddDeptNames" class="font-weight-bold small">Extra department name(s)</label>
+                <textarea id="lieoAddDeptNames" class="form-control" rows="4"
+                          placeholder="One name per line, e.g.&#10;Sales&#10;Projects"></textarea>
                 <div id="lieoAddDeptResult" class="lieo-add-dept-result mt-2 text-muted" style="display:none;"></div>
             </div>
             <div class="modal-footer py-2">
@@ -663,10 +757,42 @@ require_once __DIR__ . '/../includes/header.php';
         });
     }
 
+    function loadAmsDeptRef(plant) {
+        var $chips = document.getElementById('lieoAddDeptAmsChips');
+        var $count = document.getElementById('lieoAddDeptAmsCount');
+        if (!$chips) return;
+        $chips.innerHTML = '<span class="text-muted">Loading…</span>';
+        if ($count) $count.textContent = '';
+        if (!plant) {
+            $chips.innerHTML = '<span class="text-muted">Select a plant first.</span>';
+            return;
+        }
+        fetch('../api/ams_lookup.php?type=ams_departments&plant=' + encodeURIComponent(plant))
+            .then(function (r) { return r.json(); })
+            .then(function (rows) {
+                rows = rows || [];
+                if ($count) {
+                    $count.textContent = rows.length ? ('(' + rows.length + ')') : '';
+                }
+                if (!rows.length) {
+                    $chips.innerHTML = '<span class="text-muted">No AMS departments found for this plant.</span>';
+                    return;
+                }
+                $chips.innerHTML = rows.map(function (d) {
+                    return '<span class="lieo-add-dept-ams-chip">' + String(d).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                }).join('');
+            })
+            .catch(function () {
+                $chips.innerHTML = '<span class="text-danger">Could not load AMS departments.</span>';
+            });
+    }
+
     function showAddDeptModal() {
         syncDeptMasterLinks();
-        document.getElementById('lieoAddDeptPlantLabel').textContent = $plant.value || '—';
+        var plant = $plant.value || '';
+        document.getElementById('lieoAddDeptPlantLabel').textContent = plant || '—';
         document.getElementById('lieoAddDeptResult').style.display = 'none';
+        loadAmsDeptRef(plant);
         if ($addDeptModalEl) {
             $addDeptModalEl.style.zIndex = '2000';
         }
@@ -711,6 +837,55 @@ require_once __DIR__ . '/../includes/header.php';
         });
         $dept.disabled = false;
         syncDepartmentField();
+        renderAllDeptsList(rows || [], selected);
+    }
+
+    function renderAllDeptsList(rows, selected) {
+        var $box = document.getElementById('lieoAllDeptsList');
+        var $count = document.getElementById('lieoAllDeptsCount');
+        if (!$box) return;
+        selected = selected || $dept.value || '';
+        if ($count) {
+            $count.textContent = rows.length ? ('(' + rows.length + ')') : '';
+        }
+        if (!rows.length) {
+            $box.innerHTML = '<span class="text-muted small px-1">No departments for this plant.</span>';
+            return;
+        }
+        $box.innerHTML = rows.map(function (d) {
+            var esc = String(d).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            var sel = d === selected ? ' is-selected' : '';
+            return '<button type="button" class="lieo-all-depts-item' + sel + '" data-dept="' + esc + '">' + esc + '</button>';
+        }).join('');
+    }
+
+    function toggleAllDeptsBox(forceShow) {
+        var $panel = document.getElementById('lieoAllDeptsBox');
+        var $toggle = document.getElementById('lieoToggleAllDepts');
+        if (!$panel || !$toggle) return;
+        var show = typeof forceShow === 'boolean' ? forceShow : ($panel.style.display === 'none');
+        if (!$plant.value) {
+            if (window.lieoAlert) {
+                lieoAlert({ title: 'Select plant', message: 'Choose a plant first to view departments.' });
+            }
+            return;
+        }
+        if (show) {
+            loadDepartments($plant.value, $dept.value, { keepEmployee: true }).then(function () {
+                $panel.style.display = 'block';
+                $toggle.textContent = 'Hide departments';
+            });
+        } else {
+            $panel.style.display = 'none';
+            $toggle.textContent = 'Show all departments';
+        }
+    }
+
+    function selectDepartment(name) {
+        if (!name) return;
+        $dept.value = name;
+        $dept.dispatchEvent(new Event('change'));
+        renderAllDeptsList(Array.from($dept.options).slice(1).map(function (o) { return o.value; }), name);
     }
 
     function isPlantOnlyRole() {
@@ -950,12 +1125,15 @@ require_once __DIR__ . '/../includes/header.php';
         syncDepartmentField();
     });
 
-    function loadDepartments(plant, selected) {
+    function loadDepartments(plant, selected, opts) {
+        opts = opts || {};
         $dept.innerHTML = '<option value="">Loading…</option>';
         $dept.disabled = true;
-        clearEmployeeFields();
-        empCache = [];
-        empLoadedFor = '';
+        if (!opts.keepEmployee) {
+            clearEmployeeFields();
+            empCache = [];
+            empLoadedFor = '';
+        }
         syncDeptMasterLinks();
         if (!plant) {
             $dept.innerHTML = '<option value="">— Select plant first —</option>';
@@ -1115,7 +1293,31 @@ require_once __DIR__ . '/../includes/header.php';
         if (canLoadEmployees() && document.getElementById('emp_code').value) {
             $countHint.textContent = 'LIEO department is for approvals — may differ from the AMS department shown on the employee.';
         }
+        renderAllDeptsList(Array.from($dept.options).slice(1).map(function (o) { return o.value; }), $dept.value);
     });
+
+    $dept.addEventListener('click', function () {
+        if ($plant.value) {
+            loadDepartments($plant.value, $dept.value, { keepEmployee: true });
+        }
+    });
+
+    document.getElementById('lieoToggleAllDepts').addEventListener('click', function () {
+        toggleAllDeptsBox();
+    });
+
+    document.getElementById('lieoAllDeptsList').addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-dept]');
+        if (!btn) return;
+        selectDepartment(btn.getAttribute('data-dept') || '');
+    });
+
+    var $amsRef = document.getElementById('lieoAddDeptAmsRef');
+    if ($amsRef) {
+        $amsRef.addEventListener('click', function () {
+            $amsRef.classList.toggle('is-expanded');
+        });
+    }
 
     function findReplaceConflict() {
         var plant = ($plant.value || '').trim();

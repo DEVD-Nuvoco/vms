@@ -7,7 +7,10 @@ $activeNav = 'departments';
 
 $plant = lieo_ams_canonical_plant($_GET['plant'] ?? $_POST['plant'] ?? '');
 $filterPlant = lieo_ams_canonical_plant($_GET['filter_plant'] ?? '');
-$amsPlants = lieo_list_ams_plants();
+$plantsWithDeptData = lieo_list_plants_with_department_data();
+if ($filterPlant !== '' && !in_array($filterPlant, $plantsWithDeptData, true)) {
+    $filterPlant = '';
+}
 
 function lieo_admin_departments_url(string $plant = '', string $filterPlant = '', int $editId = 0): string
 {
@@ -86,26 +89,70 @@ require_once __DIR__ . '/../includes/header.php';
     entries here are add-ons only.
 </p>
 
-<div class="card shadow-sm mb-4">
+<div class="card shadow-sm mb-4 lieo-dept-plant-pick">
     <div class="card-header bg-white font-weight-bold">Select plant</div>
     <div class="card-body">
-        <form method="get" class="form-inline flex-wrap" id="plantPickForm">
+        <form method="get" class="lieo-dept-plant-form" id="plantPickForm" autocomplete="off">
             <?php if ($filterPlant !== ''): ?>
                 <input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>">
             <?php endif; ?>
-            <label class="mr-2 mb-2">Plant</label>
-            <select name="plant" class="form-control mr-2 mb-2" required onchange="this.form.submit()">
-                <option value="">— Choose plant —</option>
-                <?php foreach ($amsPlants as $pl): ?>
-                    <option value="<?= htmlspecialchars($pl) ?>" <?= $plant === $pl ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($pl) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-            <noscript><button class="btn btn-lieo mb-2" type="submit">Open</button></noscript>
+            <?php if ($plant !== ''): ?>
+                <p class="small text-muted mb-2">
+                    Currently viewing: <strong class="text-success"><?= htmlspecialchars($plant) ?></strong>
+                    <span class="text-muted">— type below to switch plant</span>
+                </p>
+            <?php endif; ?>
+            <div class="lieo-dept-plant-search-wrap">
+                <label class="d-block mb-1">Plant <small class="text-muted">(search AMS — type at least 2 letters)</small></label>
+                <div class="d-flex flex-wrap align-items-stretch" style="gap:.5rem;">
+                    <div class="lieo-dept-plant-input-wrap flex-grow-1">
+                        <input type="text" id="plantSearch" class="form-control"
+                               placeholder="<?= $plant !== '' ? 'Search another plant…' : 'Type plant e.g. RCP' ?>"
+                               value="<?= $plant !== '' ? '' : htmlspecialchars($plant) ?>"
+                               autocomplete="off">
+                        <input type="hidden" name="plant" id="plant" value="<?= htmlspecialchars($plant) ?>">
+                        <div id="plantResults" class="list-group lieo-plant-results" style="display:none;"></div>
+                    </div>
+                    <div class="d-flex align-items-end">
+                        <button class="btn btn-lieo" type="submit" id="plantOpenBtn" <?= $plant === '' ? 'disabled' : '' ?>>Open</button>
+                    </div>
+                </div>
+            </div>
         </form>
     </div>
 </div>
+
+<style>
+.lieo-dept-plant-pick .card-body { overflow: visible; }
+.lieo-dept-plant-input-wrap {
+    position: relative;
+    min-width: 240px;
+}
+.lieo-plant-results {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 1050;
+    max-height: 220px;
+    overflow: auto;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .14);
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+.lieo-plant-results .list-group-item {
+    cursor: pointer;
+    padding: .45rem .75rem;
+    font-size: .875rem;
+    border: 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+.lieo-plant-results .list-group-item:last-child { border-bottom: 0; }
+.lieo-plant-results .list-group-item:hover {
+    background: #ecfdf3;
+}
+</style>
 
 <?php if ($plant === ''): ?>
 <div class="alert alert-light border">
@@ -198,7 +245,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <a href="approval_matrix.php?plant=<?= rawurlencode($plant) ?>">Assign now</a>
                     </td>
                 </tr>
-            <?php endif; ?>
+            <?php else: ?>
             <?php foreach ($timeofficeRows as $to): ?>
                 <tr>
                     <td><?= htmlspecialchars($to['department'] === 'All' ? 'All departments' : ($to['department'] ?? '')) ?></td>
@@ -207,6 +254,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <td><?= htmlspecialchars($to['emp_email'] ?? '') ?></td>
                 </tr>
             <?php endforeach; ?>
+            <?php endif; ?>
             </tbody>
         </table>
     </div>
@@ -278,13 +326,16 @@ require_once __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <label class="mr-2 mb-0 small">Filter plant</label>
             <select name="filter_plant" class="form-control form-control-sm mr-2" onchange="this.form.submit()">
-                <option value="">All plants</option>
-                <?php foreach ($amsPlants as $pl): ?>
+                <option value="">All plants with data</option>
+                <?php foreach ($plantsWithDeptData as $pl): ?>
                     <option value="<?= htmlspecialchars($pl) ?>" <?= $filterPlant === $pl ? 'selected' : '' ?>>
                         <?= htmlspecialchars($pl) ?>
                     </option>
                 <?php endforeach; ?>
             </select>
+            <?php if (!$plantsWithDeptData): ?>
+                <span class="small text-muted">No extra departments saved yet.</span>
+            <?php endif; ?>
             <noscript><button class="btn btn-sm btn-lieo" type="submit">Filter</button></noscript>
         </form>
     </div>
@@ -298,9 +349,6 @@ require_once __DIR__ . '/../includes/header.php';
                 </tr>
             </thead>
             <tbody>
-            <?php if (!$overviewRows): ?>
-                <tr><td colspan="3" class="text-muted text-center py-4">No extra plant departments recorded yet.</td></tr>
-            <?php endif; ?>
             <?php foreach ($overviewRows as $r): ?>
                 <tr>
                     <td class="font-weight-bold"><?= htmlspecialchars(lieo_ams_canonical_plant($r['plant'] ?? '') ?: ($r['plant'] ?? '')) ?></td>
@@ -312,5 +360,107 @@ require_once __DIR__ . '/../includes/header.php';
         </table>
     </div>
 </div>
+
+<script>
+(function () {
+    var $search = document.getElementById('plantSearch');
+    var $plant = document.getElementById('plant');
+    var $box = document.getElementById('plantResults');
+    var $form = document.getElementById('plantPickForm');
+    var $openBtn = document.getElementById('plantOpenBtn');
+    if (!$search || !$plant || !$box || !$form) return;
+
+    var timer = null;
+    var minChars = 2;
+
+    function hideResults() {
+        $box.style.display = 'none';
+    }
+
+    function showResults() {
+        $box.style.display = 'block';
+    }
+
+    function syncOpenBtn() {
+        if ($openBtn) {
+            $openBtn.disabled = !$plant.value;
+        }
+    }
+
+    function pickPlant(code) {
+        $search.value = '';
+        $plant.value = code;
+        hideResults();
+        syncOpenBtn();
+        $form.submit();
+    }
+
+    function runSearch(q) {
+        q = (q || '').trim();
+        if (q.length < minChars) {
+            hideResults();
+            $box.innerHTML = '';
+            return;
+        }
+        var url = '../api/ams_lookup.php?type=plants&q=' + encodeURIComponent(q);
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (rows) {
+                $box.innerHTML = '';
+                if (!rows || !rows.length) {
+                    $box.innerHTML = '<div class="list-group-item small text-muted">No plants found</div>';
+                } else {
+                    rows.slice(0, 40).forEach(function (p) {
+                        var btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'list-group-item list-group-item-action';
+                        btn.textContent = p;
+                        btn.addEventListener('click', function () { pickPlant(p); });
+                        $box.appendChild(btn);
+                    });
+                }
+                showResults();
+            })
+            .catch(function () {
+                $box.innerHTML = '<div class="list-group-item small text-danger">Search failed</div>';
+                showResults();
+            });
+    }
+
+    $search.addEventListener('input', function () {
+        clearTimeout(timer);
+        var v = this.value.trim();
+        timer = setTimeout(function () { runSearch(v); }, 220);
+    });
+
+    $search.addEventListener('focus', function () {
+        var v = this.value.trim();
+        if (v.length >= minChars) {
+            runSearch(v);
+        } else {
+            hideResults();
+        }
+    });
+
+    $form.addEventListener('submit', function (e) {
+        if (!$plant.value) {
+            e.preventDefault();
+            if (window.lieoAlert) {
+                lieoAlert({ title: 'Select plant', message: 'Type at least 2 letters, pick a plant from the list, then click Open.' });
+            }
+            $search.focus();
+        }
+    });
+
+    document.addEventListener('click', function (e) {
+        var wrap = $search.closest('.lieo-dept-plant-input-wrap');
+        if (wrap && !wrap.contains(e.target)) {
+            hideResults();
+        }
+    });
+
+    syncOpenBtn();
+})();
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

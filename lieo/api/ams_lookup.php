@@ -18,4 +18,10 @@ if ($type === 'departments') {
     exit;
 }
 
+if ($type === 'ams_departments') {
+    $plant = trim($_GET['plant'] ?? '');
+    echo json_encode(lieo_list_ams_departments($plant));
+    exit;
+}
+
 echo json_encode([]);
