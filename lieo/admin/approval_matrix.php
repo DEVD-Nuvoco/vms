@@ -859,6 +859,25 @@ require_once __DIR__ . '/../includes/header.php';
         }).join('');
     }
 
+    function fetchDepartmentsOnly(plant) {
+        if (!plant) return Promise.resolve([]);
+        return fetch('../api/ams_lookup.php?type=departments&plant=' + encodeURIComponent(plant))
+            .then(function (r) { return r.json(); })
+            .then(function (rows) { return rows || []; })
+            .catch(function () { return [] });
+    }
+
+    function syncSelectOptionsQuietly(rows, selected) {
+        selected = selected || $dept.value || '';
+        var current = Array.from($dept.options).slice(1).map(function (o) { return o.value; });
+        var same = current.length === rows.length && current.every(function (v, i) { return v === rows[i]; });
+        if (!same) {
+            fillDepartmentOptions(rows, selected);
+        } else {
+            renderAllDeptsList(rows, selected);
+        }
+    }
+
     function toggleAllDeptsBox(forceShow) {
         var $panel = document.getElementById('lieoAllDeptsBox');
         var $toggle = document.getElementById('lieoToggleAllDepts');
@@ -871,7 +890,9 @@ require_once __DIR__ . '/../includes/header.php';
             return;
         }
         if (show) {
-            loadDepartments($plant.value, $dept.value, { keepEmployee: true }).then(function () {
+            fetchDepartmentsOnly($plant.value).then(function (rows) {
+                syncSelectOptionsQuietly(rows, $dept.value);
+                renderAllDeptsList(rows, $dept.value);
                 $panel.style.display = 'block';
                 $toggle.textContent = 'Hide departments';
             });
@@ -1294,12 +1315,6 @@ require_once __DIR__ . '/../includes/header.php';
             $countHint.textContent = 'LIEO department is for approvals — may differ from the AMS department shown on the employee.';
         }
         renderAllDeptsList(Array.from($dept.options).slice(1).map(function (o) { return o.value; }), $dept.value);
-    });
-
-    $dept.addEventListener('click', function () {
-        if ($plant.value) {
-            loadDepartments($plant.value, $dept.value, { keepEmployee: true });
-        }
     });
 
     document.getElementById('lieoToggleAllDepts').addEventListener('click', function () {

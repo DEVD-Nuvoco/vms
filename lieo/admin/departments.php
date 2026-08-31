@@ -67,16 +67,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $editId = (int) ($_GET['edit'] ?? 0);
-$rows = $plant !== '' ? lieo_list_plant_departments($plant) : [];
 $editRow = null;
-foreach ($rows as $r) {
-    if ((int) $r['dept_id'] === $editId) {
-        $editRow = $r;
-        break;
+if ($editId > 0) {
+    foreach (lieo_list_all_plant_departments(null) as $r) {
+        if ((int) ($r['dept_id'] ?? 0) === $editId) {
+            $editRow = $r;
+            break;
+        }
     }
 }
+if ($editRow && $plant === '') {
+    $plant = lieo_ams_canonical_plant((string) ($editRow['plant'] ?? ''));
+}
 $amsHint = $plant !== '' ? lieo_list_ams_departments($plant) : [];
-$timeofficeRows = $plant !== '' ? lieo_list_timeoffice_matrix_for_plant($plant) : [];
 $overviewRows = lieo_list_all_plant_departments($filterPlant !== '' ? $filterPlant : null);
 
 require_once __DIR__ . '/../includes/header.php';
@@ -156,7 +159,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <?php if ($plant === ''): ?>
 <div class="alert alert-light border">
-    Select a plant above to view AMS departments, add extras, and see Time Office assignments for that plant.
+    Select a plant above to view AMS departments and add extras for that plant.
 </div>
 <?php else: ?>
 
@@ -219,102 +222,6 @@ require_once __DIR__ . '/../includes/header.php';
         </form>
     </div>
 </div>
-
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-white font-weight-bold d-flex justify-content-between align-items-center flex-wrap">
-        <span>Time Office assigned — <?= htmlspecialchars($plant) ?></span>
-        <a href="approval_matrix.php?plant=<?= rawurlencode($plant) ?>" class="btn btn-sm btn-outline-success">
-            Assign Time Office
-        </a>
-    </div>
-    <div class="card-body p-0">
-        <table class="table mb-0">
-            <thead>
-                <tr>
-                    <th>Department</th>
-                    <th>Emp Code</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                </tr>
-            </thead>
-            <tbody>
-            <?php if (!$timeofficeRows): ?>
-                <tr>
-                    <td colspan="4" class="text-muted text-center py-3">
-                        No Time Office assigned yet for this plant.
-                        <a href="approval_matrix.php?plant=<?= rawurlencode($plant) ?>">Assign now</a>
-                    </td>
-                </tr>
-            <?php else: ?>
-            <?php foreach ($timeofficeRows as $to): ?>
-                <tr>
-                    <td><?= htmlspecialchars($to['department'] === 'All' ? 'All departments' : ($to['department'] ?? '')) ?></td>
-                    <td class="font-weight-bold text-danger"><?= htmlspecialchars($to['emp_code'] ?? '') ?></td>
-                    <td><?= htmlspecialchars($to['emp_name'] ?? '') ?></td>
-                    <td><?= htmlspecialchars($to['emp_email'] ?? '') ?></td>
-                </tr>
-            <?php endforeach; ?>
-            <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<div class="card shadow-sm mb-4 py-3">
-    <div class="card-header bg-white font-weight-bold">Extra departments — <?= htmlspecialchars($plant) ?></div>
-    <div class="card-body p-0">
-        <table class="table mb-0">
-            <thead><tr><th>Department</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-            <?php if (!$rows): ?>
-                <tr><td colspan="3" class="text-muted text-center">No extra departments for this plant.</td></tr>
-            <?php endif; ?>
-            <?php foreach ($rows as $r): ?>
-                <tr>
-                    <td><?= htmlspecialchars($r['department_name']) ?></td>
-                    <td><?= lieo_status_badge($r['status']) ?></td>
-                    <td class="text-nowrap">
-                        <a href="<?= htmlspecialchars(lieo_admin_departments_url($plant, $filterPlant, (int) $r['dept_id'])) ?>"
-                           class="btn btn-sm btn-outline-primary">Edit</a>
-                        <?php if (($r['status'] ?? '') === 'Active'): ?>
-                        <form method="post" class="d-inline"
-                              data-lieo-confirm="Deactivate this department?"
-                              data-lieo-confirm-title="Deactivate department"
-                              data-lieo-danger="1"
-                              data-lieo-confirm-ok="Deactivate">
-                            <input type="hidden" name="action" value="deactivate">
-                            <input type="hidden" name="plant" value="<?= htmlspecialchars($plant) ?>">
-                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
-                            <input type="hidden" name="id" value="<?= (int) $r['dept_id'] ?>">
-                            <button class="btn btn-sm btn-outline-warning">Deactivate</button>
-                        </form>
-                        <?php else: ?>
-                        <form method="post" class="d-inline">
-                            <input type="hidden" name="action" value="activate">
-                            <input type="hidden" name="plant" value="<?= htmlspecialchars($plant) ?>">
-                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
-                            <input type="hidden" name="id" value="<?= (int) $r['dept_id'] ?>">
-                            <button class="btn btn-sm btn-outline-success">Activate</button>
-                        </form>
-                        <?php endif; ?>
-                        <form method="post" class="d-inline"
-                              data-lieo-confirm="Delete this department permanently?"
-                              data-lieo-confirm-title="Delete department"
-                              data-lieo-danger="1"
-                              data-lieo-confirm-ok="Delete">
-                            <input type="hidden" name="action" value="delete">
-                            <input type="hidden" name="plant" value="<?= htmlspecialchars($plant) ?>">
-                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
-                            <input type="hidden" name="id" value="<?= (int) $r['dept_id'] ?>">
-                            <button class="btn btn-sm btn-outline-danger">Delete</button>
-                        </form>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
 <?php endif; ?>
 
 <div class="card shadow-sm">
@@ -323,6 +230,9 @@ require_once __DIR__ . '/../includes/header.php';
         <form method="get" class="form-inline mt-2 mt-md-0">
             <?php if ($plant !== ''): ?>
                 <input type="hidden" name="plant" value="<?= htmlspecialchars($plant) ?>">
+            <?php endif; ?>
+            <?php if ($editId > 0): ?>
+                <input type="hidden" name="edit" value="<?= (int) $editId ?>">
             <?php endif; ?>
             <label class="mr-2 mb-0 small">Filter plant</label>
             <select name="filter_plant" class="form-control form-control-sm mr-2" onchange="this.form.submit()">
@@ -340,20 +250,64 @@ require_once __DIR__ . '/../includes/header.php';
         </form>
     </div>
     <div class="card-body p-0">
-        <table class="table mb-0 lieo-datatable">
+        <table class="table mb-0 lieo-datatable lieo-dept-overview-table">
             <thead>
                 <tr>
                     <th>Plant</th>
                     <th>Department</th>
                     <th>Status</th>
+                    <th class="text-nowrap">Action</th>
                 </tr>
             </thead>
             <tbody>
+            <?php if (!$overviewRows): ?>
+                <tr><td colspan="4" class="text-muted text-center py-4">No extra departments saved yet.</td></tr>
+            <?php endif; ?>
             <?php foreach ($overviewRows as $r): ?>
+                <?php
+                    $rowPlant = lieo_ams_canonical_plant((string) ($r['plant'] ?? '')) ?: (string) ($r['plant'] ?? '');
+                    $deptId = (int) ($r['dept_id'] ?? 0);
+                ?>
                 <tr>
-                    <td class="font-weight-bold"><?= htmlspecialchars(lieo_ams_canonical_plant($r['plant'] ?? '') ?: ($r['plant'] ?? '')) ?></td>
+                    <td class="font-weight-bold"><?= htmlspecialchars($rowPlant) ?></td>
                     <td><?= htmlspecialchars($r['department_name'] ?? '') ?></td>
                     <td><?= lieo_status_badge($r['status'] ?? '') ?></td>
+                    <td class="text-nowrap">
+                        <a href="<?= htmlspecialchars(lieo_admin_departments_url($rowPlant, $filterPlant, $deptId)) ?>"
+                           class="btn btn-sm btn-outline-primary">Edit</a>
+                        <?php if (($r['status'] ?? '') === 'Active'): ?>
+                        <form method="post" class="d-inline"
+                              data-lieo-confirm="Deactivate this department?"
+                              data-lieo-confirm-title="Deactivate department"
+                              data-lieo-danger="1"
+                              data-lieo-confirm-ok="Deactivate">
+                            <input type="hidden" name="action" value="deactivate">
+                            <input type="hidden" name="plant" value="<?= htmlspecialchars($rowPlant) ?>">
+                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
+                            <input type="hidden" name="id" value="<?= $deptId ?>">
+                            <button class="btn btn-sm btn-outline-warning">Deactivate</button>
+                        </form>
+                        <?php else: ?>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="activate">
+                            <input type="hidden" name="plant" value="<?= htmlspecialchars($rowPlant) ?>">
+                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
+                            <input type="hidden" name="id" value="<?= $deptId ?>">
+                            <button class="btn btn-sm btn-outline-success">Activate</button>
+                        </form>
+                        <?php endif; ?>
+                        <form method="post" class="d-inline"
+                              data-lieo-confirm="Delete this department permanently?"
+                              data-lieo-confirm-title="Delete department"
+                              data-lieo-danger="1"
+                              data-lieo-confirm-ok="Delete">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="plant" value="<?= htmlspecialchars($rowPlant) ?>">
+                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
+                            <input type="hidden" name="id" value="<?= $deptId ?>">
+                            <button class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
