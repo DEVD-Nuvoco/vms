@@ -135,6 +135,10 @@ $lieoMatrixAssignments = array_map(static function (array $r): array {
     ];
 }, $allMatrix);
 
+$lieoDeptMasterBase = $_SESSION['lieo_role'] === 'admin'
+    ? lieo_nav_url('admin', 'departments.php')
+    : lieo_nav_url('timeoffice', 'departments.php');
+
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -168,7 +172,12 @@ require_once __DIR__ . '/../includes/header.php';
                     <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
                 </div>
                 <div class="form-group col-md-4" id="departmentGroup">
-                    <label>LIEO Department *</label>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="mb-0">LIEO Department *</label>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-success font-weight-bold" id="lieoAddDeptOpen">
+                            + Add Department(s)
+                        </button>
+                    </div>
                     <select name="department" id="department" class="form-control" required <?= $editPlant === '' ? 'disabled' : '' ?>>
                         <option value="">— Select plant first —</option>
                         <?php foreach ($editDepts as $d): ?>
@@ -177,7 +186,10 @@ require_once __DIR__ . '/../includes/header.php';
                         </option>
                         <?php endforeach; ?>
                     </select>
-                    <small class="text-muted d-block mt-1">For LIEO approvals. Can differ from AMS.</small>
+                    <small class="text-muted d-block mt-1">
+                        AMS departments are included automatically. Use <strong>Add Department(s)</strong> for extras.
+                        <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoDeptMasterLink">Manage in Department Master</a>
+                    </small>
                     <input type="hidden" name="department" id="departmentAll" value="All" disabled>
                 </div>
                 <div class="form-group col-md-4">
@@ -447,7 +459,44 @@ require_once __DIR__ . '/../includes/header.php';
     position: relative;
     z-index: 2001;
 }
+#lieoAddDeptModal { z-index: 2000 !important; }
+#lieoAddDeptModal .modal-dialog,
+#lieoAddDeptModal .modal-content {
+    pointer-events: auto;
+    position: relative;
+    z-index: 2001;
+}
+.lieo-add-dept-hint { font-size: .8125rem; color: #64748b; }
+.lieo-add-dept-result { font-size: .8125rem; max-height: 120px; overflow: auto; }
 </style>
+
+<div class="modal fade" id="lieoAddDeptModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title lieo-title mb-0" style="font-size:1.05rem;">Add department(s)</h5>
+                    <small class="text-muted">Plant: <strong id="lieoAddDeptPlantLabel">—</strong></small>
+                </div>
+                <button type="button" class="close" id="lieoAddDeptClose" aria-label="Close"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <p class="lieo-add-dept-hint mb-2">
+                    Enter one department per line. AMS departments are already in the list — add only names that are missing.
+                    Full edit/deactivate is in <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoAddDeptMasterLink">Department Master</a>.
+                </p>
+                <label for="lieoAddDeptNames" class="font-weight-bold small">Department name(s)</label>
+                <textarea id="lieoAddDeptNames" class="form-control" rows="5"
+                          placeholder="Sales&#10;Projects&#10;Maintenance"></textarea>
+                <div id="lieoAddDeptResult" class="lieo-add-dept-result mt-2 text-muted" style="display:none;"></div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="lieoAddDeptCancel">Cancel</button>
+                <button type="button" class="btn btn-lieo btn-sm" id="lieoAddDeptSave">Add to list</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="modal fade" id="lieoEmpBrowseModal" tabindex="-1" role="dialog" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
@@ -539,7 +588,16 @@ require_once __DIR__ . '/../includes/header.php';
     var $modalScope = document.getElementById('empModalScope');
     var $modalEl = document.getElementById('lieoEmpBrowseModal');
     var $modal = $ ? $('#lieoEmpBrowseModal') : null;
+    var $addDeptModalEl = document.getElementById('lieoAddDeptModal');
+    var $addDeptModal = $ ? $('#lieoAddDeptModal') : null;
+    var lieoDeptMasterBase = <?= json_encode($lieoDeptMasterBase) ?>;
     var editEmpCode = <?= json_encode((string) ($editRow['emp_code'] ?? '')) ?>;
+
+    if ($ && $addDeptModal && $addDeptModal.length && !$addDeptModal.parent().is('body')) {
+        $addDeptModal.appendTo('body');
+    } else if ($addDeptModalEl && $addDeptModalEl.parentElement !== document.body) {
+        document.body.appendChild($addDeptModalEl);
+    }
 
     if ($ && $modal && $modal.length && !$modal.parent().is('body')) {
         $modal.appendTo('body');
@@ -590,6 +648,69 @@ require_once __DIR__ . '/../includes/header.php';
         }
         document.body.classList.remove('modal-open');
         document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+    }
+
+    function deptMasterUrl(plant) {
+        if (!plant) return lieoDeptMasterBase;
+        return lieoDeptMasterBase + (lieoDeptMasterBase.indexOf('?') >= 0 ? '&' : '?') + 'plant=' + encodeURIComponent(plant);
+    }
+
+    function syncDeptMasterLinks() {
+        var url = deptMasterUrl($plant.value || '');
+        ['lieoDeptMasterLink', 'lieoAddDeptMasterLink'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.setAttribute('href', url);
+        });
+    }
+
+    function showAddDeptModal() {
+        syncDeptMasterLinks();
+        document.getElementById('lieoAddDeptPlantLabel').textContent = $plant.value || '—';
+        document.getElementById('lieoAddDeptResult').style.display = 'none';
+        if ($addDeptModalEl) {
+            $addDeptModalEl.style.zIndex = '2000';
+        }
+        if ($ && $.fn.modal && $addDeptModal && $addDeptModal.length) {
+            $('.modal-backdrop').not('.lieo-dialog-backdrop').remove();
+            $addDeptModal.modal({ backdrop: true, keyboard: true, show: true });
+            setTimeout(function () {
+                $('.modal-backdrop').last().css('z-index', 1990);
+            }, 10);
+            return;
+        }
+        if (!$addDeptModalEl) return;
+        $addDeptModalEl.classList.add('show');
+        $addDeptModalEl.style.display = 'block';
+        $addDeptModalEl.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+    }
+
+    function hideAddDeptModal() {
+        if ($ && $.fn.modal && $addDeptModal && $addDeptModal.length) {
+            $addDeptModal.modal('hide');
+        }
+        if ($addDeptModalEl) {
+            $addDeptModalEl.classList.remove('show');
+            $addDeptModalEl.style.display = 'none';
+            $addDeptModalEl.setAttribute('aria-hidden', 'true');
+        }
+        if (!$('.modal.show').length) {
+            document.body.classList.remove('modal-open');
+            document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+        }
+    }
+
+    function fillDepartmentOptions(rows, selected) {
+        $dept.innerHTML = '<option value="">— Select department —</option>';
+        (rows || []).forEach(function (d) {
+            var opt = document.createElement('option');
+            opt.value = d;
+            opt.textContent = d;
+            if (selected && selected === d) opt.selected = true;
+            $dept.appendChild(opt);
+        });
+        $dept.disabled = false;
+        syncDepartmentField();
     }
 
     function isPlantOnlyRole() {
@@ -835,29 +956,116 @@ require_once __DIR__ . '/../includes/header.php';
         clearEmployeeFields();
         empCache = [];
         empLoadedFor = '';
+        syncDeptMasterLinks();
         if (!plant) {
             $dept.innerHTML = '<option value="">— Select plant first —</option>';
             syncDepartmentField();
-            return;
+            return Promise.resolve([]);
         }
-        fetch('../api/ams_lookup.php?type=departments&plant=' + encodeURIComponent(plant))
+        return fetch('../api/ams_lookup.php?type=departments&plant=' + encodeURIComponent(plant))
             .then(function (r) { return r.json(); })
             .then(function (rows) {
-                $dept.innerHTML = '<option value="">— Select department —</option>';
-                (rows || []).forEach(function (d) {
-                    var opt = document.createElement('option');
-                    opt.value = d;
-                    opt.textContent = d;
-                    if (selected && selected === d) opt.selected = true;
-                    $dept.appendChild(opt);
-                });
-                $dept.disabled = false;
-                syncDepartmentField();
+                fillDepartmentOptions(rows, selected);
+                return rows || [];
             })
             .catch(function () {
                 $dept.innerHTML = '<option value="">Failed to load</option>';
+                return [];
             });
     }
+
+    document.getElementById('lieoAddDeptOpen').addEventListener('click', function () {
+        if (!$plant.value) {
+            if (window.lieoAlert) {
+                lieoAlert({ title: 'Select plant', message: 'Choose a plant first, then add department(s).' });
+            }
+            return;
+        }
+        document.getElementById('lieoAddDeptNames').value = '';
+        showAddDeptModal();
+        setTimeout(function () { document.getElementById('lieoAddDeptNames').focus(); }, 200);
+    });
+
+    document.getElementById('lieoAddDeptCancel').addEventListener('click', function (e) {
+        e.preventDefault();
+        hideAddDeptModal();
+    });
+    document.getElementById('lieoAddDeptClose').addEventListener('click', function (e) {
+        e.preventDefault();
+        hideAddDeptModal();
+    });
+
+    document.getElementById('lieoAddDeptSave').addEventListener('click', function () {
+        var plant = ($plant.value || '').trim();
+        var raw = (document.getElementById('lieoAddDeptNames').value || '');
+        var names = raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+        var $result = document.getElementById('lieoAddDeptResult');
+        var $btn = document.getElementById('lieoAddDeptSave');
+
+        if (!plant) {
+            if (window.lieoAlert) lieoAlert({ title: 'Select plant', message: 'Choose a plant first.' });
+            return;
+        }
+        if (!names.length) {
+            if (window.lieoAlert) lieoAlert({ title: 'Enter names', message: 'Type one or more department names (one per line).' });
+            return;
+        }
+
+        $btn.disabled = true;
+        $result.style.display = 'none';
+
+        fetch('../api/add_plant_departments.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ plant: plant, departments: names })
+        })
+            .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+            .then(function (res) {
+                var data = res.data || {};
+                var html = '';
+                if (data.message) {
+                    html += '<div class="' + (data.added && data.added.length ? 'text-success' : 'text-muted') + '">' + data.message + '</div>';
+                }
+                if (data.skipped && data.skipped.length) {
+                    html += '<ul class="mb-0 pl-3">';
+                    data.skipped.forEach(function (s) {
+                        html += '<li>' + (s.name || '') + ' — ' + (s.reason || 'skipped') + '</li>';
+                    });
+                    html += '</ul>';
+                }
+                if (data.errors && data.errors.length) {
+                    html += '<ul class="mb-0 pl-3 text-danger">';
+                    data.errors.forEach(function (s) {
+                        html += '<li>' + (s.name || '') + ' — ' + (s.reason || 'failed') + '</li>';
+                    });
+                    html += '</ul>';
+                }
+                if (html) {
+                    $result.innerHTML = html;
+                    $result.style.display = 'block';
+                }
+
+                if (data.departments && data.departments.length) {
+                    var pick = (data.added && data.added.length) ? data.added[data.added.length - 1] : $dept.value;
+                    fillDepartmentOptions(data.departments, pick);
+                } else {
+                    loadDepartments(plant, $dept.value);
+                }
+
+                if (data.added && data.added.length) {
+                    document.getElementById('lieoAddDeptNames').value = '';
+                    setTimeout(hideAddDeptModal, 600);
+                } else if (!res.ok && window.lieoAlert) {
+                    lieoAlert({ title: 'Could not add', message: data.message || 'No departments were added.' });
+                }
+            })
+            .catch(function () {
+                if (window.lieoAlert) lieoAlert({ title: 'Error', message: 'Could not save departments. Try again.' });
+            })
+            .finally(function () {
+                $btn.disabled = false;
+            });
+    });
 
     $plantSearch.addEventListener('input', function () {
         clearTimeout(plantTimer);
@@ -1005,6 +1213,7 @@ require_once __DIR__ . '/../includes/header.php';
 
     updatePickerUI();
     syncDepartmentField();
+    syncDeptMasterLinks();
 
     if ($modalEl) {
         var closeBtn = document.getElementById('empModalCloseBtn');
@@ -1013,6 +1222,11 @@ require_once __DIR__ . '/../includes/header.php';
         if (cancelBtn) cancelBtn.addEventListener('click', function (e) { e.preventDefault(); hideEmpModal(); });
         $modalEl.addEventListener('click', function (e) {
             if (e.target === $modalEl) hideEmpModal();
+        });
+    }
+    if ($addDeptModalEl) {
+        $addDeptModalEl.addEventListener('click', function (e) {
+            if (e.target === $addDeptModalEl) hideAddDeptModal();
         });
     }
     }); // lieoWhenReady

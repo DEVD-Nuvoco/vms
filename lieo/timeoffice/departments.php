@@ -48,6 +48,7 @@ foreach ($rows as $r) {
     }
 }
 $amsHint = lieo_list_ams_departments($plant);
+$timeofficeRows = lieo_list_timeoffice_matrix_for_plant($plant);
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -120,6 +121,42 @@ require_once __DIR__ . '/../includes/header.php';
             <button class="btn btn-lieo"><?= $editRow ? 'Update' : 'Add' ?></button>
             <?php if ($editRow): ?><a href="departments.php" class="btn btn-link">Cancel</a><?php endif; ?>
         </form>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white font-weight-bold d-flex justify-content-between align-items-center flex-wrap">
+        <span>Time Office assigned — <?= htmlspecialchars($plant) ?></span>
+        <a href="approval_matrix.php" class="btn btn-sm btn-outline-success">Approval Matrix</a>
+    </div>
+    <div class="card-body p-0">
+        <table class="table mb-0">
+            <thead>
+                <tr>
+                    <th>Department</th>
+                    <th>Emp Code</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php if (!$timeofficeRows): ?>
+                <tr>
+                    <td colspan="4" class="text-muted text-center py-3">
+                        No Time Office assigned for this plant yet. Ask Admin to assign in Approval Matrix.
+                    </td>
+                </tr>
+            <?php endif; ?>
+            <?php foreach ($timeofficeRows as $to): ?>
+                <tr>
+                    <td><?= htmlspecialchars($to['department'] === 'All' ? 'All departments' : ($to['department'] ?? '')) ?></td>
+                    <td class="font-weight-bold text-danger"><?= htmlspecialchars($to['emp_code'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($to['emp_name'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($to['emp_email'] ?? '') ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 

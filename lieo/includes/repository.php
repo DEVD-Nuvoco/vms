@@ -1092,6 +1092,50 @@ function lieo_list_plant_departments(string $plant, bool $activeOnly = false): a
     return $rows;
 }
 
+/**
+ * All plant master department rows, optionally filtered by plant.
+ * @return list<array<string,mixed>>
+ */
+function lieo_list_all_plant_departments(?string $plant = null): array
+{
+    if ($plant !== null && $plant !== '') {
+        return lieo_list_plant_departments(lieo_ams_canonical_plant($plant), false);
+    }
+    $res = lieo_db()->query(
+        'SELECT * FROM tbl_lieo_plant_department ORDER BY plant, department_name'
+    );
+    return $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+/**
+ * Active Time Office matrix rows for a plant (for department master reference).
+ * @return list<array<string,mixed>>
+ */
+function lieo_list_timeoffice_matrix_for_plant(string $plant): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return [];
+    }
+    $canon = lieo_sql_canonical_plant('m.plant');
+    $stmt = lieo_db()->prepare(
+        "SELECT m.*
+         FROM tbl_lieo_approval_matrix m
+         WHERE m.status = 'Active'
+           AND m.approval_step = 'timeoffice'
+           AND $canon = ?
+         ORDER BY m.department, m.emp_name"
+    );
+    if (!$stmt) {
+        return [];
+    }
+    $stmt->bind_param('s', $plant);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return $rows;
+}
+
 /** Normalize department name for strict compare (trim + collapse spaces). */
 function lieo_normalize_dept_name(string $name): string
 {
@@ -1156,6 +1200,85 @@ function lieo_save_plant_department(string $plant, string $name, ?int $id = null
     $err = $stmt->error;
     $stmt->close();
     return $ok ? ['ok' => true] : ['ok' => false, 'message' => $err ?: 'Save failed (duplicate?).'];
+}
+
+/**
+ * Add one or more extra plant departments (skips AMS duplicates and existing master rows).
+ *
+ * @param list<string> $names
+ * @return array{ok:bool,added:list<string>,skipped:list<array{name:string,reason:string}>,errors:list<array{name:string,reason:string}>,departments:list<string>,message?:string}
+ */
+function lieo_add_plant_departments_bulk(string $plant, array $names): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return ['ok' => false, 'added' => [], 'skipped' => [], 'errors' => [], 'departments' => [], 'message' => 'Plant is required.'];
+    }
+
+    $added = [];
+    $skipped = [];
+    $errors = [];
+    $seenInput = [];
+
+    foreach ($names as $name) {
+        $name = lieo_normalize_dept_name((string) $name);
+        if ($name === '') {
+            continue;
+        }
+        $key = strtolower($name);
+        if (isset($seenInput[$key])) {
+            continue;
+        }
+        $seenInput[$key] = true;
+
+        $result = lieo_save_plant_department($plant, $name);
+        if (!empty($result['ok'])) {
+            $added[] = $name;
+            continue;
+        }
+        $code = (string) ($result['code'] ?? '');
+        $reason = (string) ($result['message'] ?? 'Could not add.');
+        if ($code === 'ams_duplicate' || $code === 'master_duplicate') {
+            $skipped[] = ['name' => $name, 'reason' => $reason];
+        } else {
+            $errors[] = ['name' => $name, 'reason' => $reason];
+        }
+    }
+
+    if (!$added && !$skipped && !$errors) {
+        return [
+            'ok' => false,
+            'added' => [],
+            'skipped' => [],
+            'errors' => [],
+            'departments' => lieo_list_departments_for_plant($plant),
+            'message' => 'Enter at least one department name.',
+        ];
+    }
+
+    $message = '';
+    if ($added) {
+        $message = count($added) === 1
+            ? 'Added 1 department.'
+            : ('Added ' . count($added) . ' departments.');
+    }
+    if ($skipped && !$added && !$errors) {
+        $message = 'All entered names already exist (AMS or plant master).';
+    } elseif ($skipped && $message !== '') {
+        $message .= ' ' . count($skipped) . ' skipped (already exist).';
+    }
+    if ($errors) {
+        $message = ($message !== '' ? $message . ' ' : '') . count($errors) . ' could not be added.';
+    }
+
+    return [
+        'ok' => count($added) > 0 || (count($skipped) > 0 && count($errors) === 0),
+        'added' => $added,
+        'skipped' => $skipped,
+        'errors' => $errors,
+        'departments' => lieo_list_departments_for_plant($plant),
+        'message' => $message,
+    ];
 }
 
 function lieo_delete_plant_department(int $id, string $plant): bool

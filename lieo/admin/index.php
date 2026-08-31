@@ -96,6 +96,7 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="card-header bg-white font-weight-bold">Quick Actions</div>
             <div class="card-body">
                 <a href="approval_matrix.php" class="btn btn-lieo btn-block mb-2">Time Office Users</a>
+                <a href="departments.php" class="btn btn-outline-success btn-block">Department Master</a>
             </div>
         </div>
     </div>

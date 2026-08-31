@@ -17,6 +17,7 @@ $lieoRoot = lieo_root_prefix();
 $adminNav = [
     'dashboard' => ['label' => 'Dashboard',         'url' => lieo_nav_url('admin', 'index.php'),           'icon' => 'typcn-chart-area-outline'],
     'matrix'    => ['label' => 'Time Office Users', 'url' => lieo_nav_url('admin', 'approval_matrix.php'), 'icon' => 'typcn-flow-merge'],
+    'departments'=> ['label' => 'Department Master', 'url' => lieo_nav_url('admin', 'departments.php'),    'icon' => 'typcn-th-large'],
 ];
 
 $sectionInchargeNav = [
