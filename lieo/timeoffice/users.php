@@ -7,13 +7,11 @@ $activeNav = 'users';
 global $LIEO_ROLES, $LIEO_APP_CHAIN;
 
 $roleDescriptions = [
-    'admin'            => 'Assigns Time Office users only; system dashboard.',
-    'section_incharge' => 'Creates Late IN / Early Out applications (department-wise).',
-    'timeoffice'       => 'First approver after Section Incharge; owns plant masters (matrix, departments, contractors, notification mail).',
-    'n1'               => 'Approver after Time Office (department-wise).',
-    'hod'              => 'Plant HOD — final approval before Security.',
-    'security'         => 'Closes applications at gate with a mandatory remark (one per plant).',
-    'hr'               => 'Approves or rejects contractor reactivation (one per plant).',
+    'admin'            => 'Creates HOD, N-1, Security and Time Office assignments — HOD/N-1/Security need HR department HOD approval first.',
+    'timeoffice'       => 'View-only tracking for your plant. Must be an HR department employee. Not part of the approval chain.',
+    'n1'               => 'Creates Late IN / Early Out applications (department-wise, multiple N-1 allowed per department).',
+    'hod'              => 'Approves applications for their department(s) — one HOD per department, but one person can hold multiple departments. The HR department HOD also approves user requests and contractor reactivation.',
+    'security'         => 'Closes applications at gate with a mandatory remark. Must be an HR department employee (one per plant).',
 ];
 
 require_once __DIR__ . '/../includes/header.php';
@@ -21,8 +19,8 @@ require_once __DIR__ . '/../includes/header.php';
 
 <h2 class="lieo-title mb-2">Roles</h2>
 <p class="text-muted mb-4">
-    LIEO roles are fixed. Assign people to roles in the <a href="approval_matrix.php">Approval Matrix</a>
-    (login + default password emailed). LC/EG chain: Section Incharge creates → Time Office → N-1 → HOD → Security closes at gate.
+    LIEO roles are fixed and view-only from here — Time Office no longer maintains role assignments (see Admin's Approval Matrix).
+    Chain: <strong>N-1 creates</strong> → <strong>HOD approves</strong> → <strong>Security</strong> closes at gate with a remark.
 </p>
 
 <div class="card shadow-sm">

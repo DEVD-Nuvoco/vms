@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['lieo_mess'] = 'Contractor deactivated.';
     } elseif ($action === 'request_reactivation') {
         lieo_request_reactivation((int) ($_POST['id'] ?? 0));
-        $_SESSION['lieo_mess'] = 'Reactivation requested — pending HR Head approval.';
+        $_SESSION['lieo_mess'] = 'Reactivation requested — pending HR department HOD approval.';
     }
     header('Location: contractors.php');
     exit;

@@ -21,17 +21,35 @@ foreach ($lieoMatrixStepKeys as $k) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+    global $LIEO_ADMIN_REQUEST_GATED_STEPS;
     try {
         if ($action === 'add' || $action === 'edit') {
             $id = $action === 'edit' ? (int) ($_POST['id'] ?? 0) : null;
-            $result = lieo_save_matrix_rule([
-                'plant' => $_POST['plant'] ?? '',
-                'department' => $_POST['department'] ?? '',
-                'approval_step' => $_POST['approval_step'] ?? '',
-                'emp_code' => $_POST['emp_code'] ?? '',
-                'emp_name' => $_POST['emp_name'] ?? '',
-                'emp_email' => $_POST['emp_email'] ?? '',
-            ], $id);
+            $step = $_POST['approval_step'] ?? '';
+            if (in_array($step, $LIEO_ADMIN_REQUEST_GATED_STEPS, true)) {
+                // HOD/N-1/Security need HR-department-HOD sign-off before they
+                // take effect — queue a request instead of saving live.
+                $result = lieo_submit_user_request([
+                    'request_type' => $id ? 'update' : 'create',
+                    'target_matrix_id' => $id,
+                    'plant' => $_POST['plant'] ?? '',
+                    'department' => $_POST['department'] ?? '',
+                    'approval_step' => $step,
+                    'emp_code' => $_POST['emp_code'] ?? '',
+                    'emp_name' => $_POST['emp_name'] ?? '',
+                    'emp_email' => $_POST['emp_email'] ?? '',
+                ]);
+            } else {
+                // Time Office: direct/live save (not HR-HOD-approval-gated).
+                $result = lieo_save_matrix_rule([
+                    'plant' => $_POST['plant'] ?? '',
+                    'department' => $_POST['department'] ?? '',
+                    'approval_step' => $step,
+                    'emp_code' => $_POST['emp_code'] ?? '',
+                    'emp_name' => $_POST['emp_name'] ?? '',
+                    'emp_email' => $_POST['emp_email'] ?? '',
+                ], $id);
+            }
             $flashMsg = trim((string) ($result['message'] ?? ''));
             $_SESSION['lieo_mess'] = $result['ok']
                 ? ($flashMsg !== '' ? $flashMsg : 'Approval rule saved.')
@@ -40,8 +58,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['lieo_mess_type'] = 'danger';
             }
         } elseif ($action === 'delete') {
-            lieo_delete_matrix_rule((int) ($_POST['id'] ?? 0));
-            $_SESSION['lieo_mess'] = 'Rule deactivated.';
+            $id = (int) ($_POST['id'] ?? 0);
+            $row = null;
+            foreach (lieo_list_matrix() as $r) {
+                if ((int) $r['matrix_id'] === $id) {
+                    $row = $r;
+                    break;
+                }
+            }
+            $step = $row['approval_step'] ?? '';
+            if ($row && in_array($step, $LIEO_ADMIN_REQUEST_GATED_STEPS, true)) {
+                lieo_submit_user_request([
+                    'request_type' => 'delete',
+                    'target_matrix_id' => $id,
+                    'plant' => $row['plant'],
+                    'department' => $row['department'],
+                    'approval_step' => $step,
+                    'emp_code' => $row['emp_code'],
+                    'emp_name' => $row['emp_name'],
+                    'emp_email' => $row['emp_email'],
+                ]);
+                $_SESSION['lieo_mess'] = 'Removal request submitted for HR department HOD approval.';
+            } else {
+                lieo_delete_matrix_rule($id);
+                $_SESSION['lieo_mess'] = 'Rule deactivated.';
+            }
+        } elseif ($action === 'transfer_hod') {
+            $id = (int) ($_POST['id'] ?? 0);
+            $row = null;
+            foreach (lieo_list_matrix() as $r) {
+                if ((int) $r['matrix_id'] === $id) {
+                    $row = $r;
+                    break;
+                }
+            }
+            if ($row && trim((string) ($_POST['emp_code'] ?? '')) !== '') {
+                $result = lieo_submit_user_request([
+                    'request_type' => 'update',
+                    'target_matrix_id' => $id,
+                    'plant' => $row['plant'],
+                    'department' => $row['department'],
+                    'approval_step' => 'hod',
+                    'emp_code' => $_POST['emp_code'] ?? '',
+                    'emp_name' => $_POST['emp_name'] ?? '',
+                    'emp_email' => $_POST['emp_email'] ?? '',
+                ]);
+                $_SESSION['lieo_mess'] = $result['ok']
+                    ? 'HOD replacement request submitted for HR department HOD approval.'
+                    : (string) ($result['message'] ?? 'Could not submit replacement request.');
+                if (empty($result['ok'])) {
+                    $_SESSION['lieo_mess_type'] = 'danger';
+                }
+            } else {
+                $_SESSION['lieo_mess'] = $row ? 'Pick the new HOD before submitting.' : 'Assignment not found.';
+                $_SESSION['lieo_mess_type'] = 'danger';
+            }
         } elseif ($action === 'resend') {
             $result = lieo_resend_matrix_credentials((int) ($_POST['id'] ?? 0));
             $_SESSION['lieo_mess'] = $result['message'] ?? ($result['ok'] ? 'Credentials resent.' : 'Resend failed.');
@@ -81,7 +152,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$editId = (int) ($_GET['edit'] ?? 0);
+$transferId = (int) ($_GET['transfer'] ?? 0);
+$editId = $transferId ?: (int) ($_GET['edit'] ?? 0);
 $allMatrix = lieo_list_matrix();
 $allowedSteps = $lieoMatrixStepKeys;
 $allMatrix = array_values(array_filter($allMatrix, static function ($r) use ($allowedSteps) {
@@ -108,6 +180,7 @@ if ($viewPlant !== '') {
         return $r['plant'] === $viewPlant;
     }));
 }
+$pendingByMatrixId = lieo_list_pending_target_requests();
 $editRow = null;
 foreach ($allMatrix as $r) {
     if ((int) $r['matrix_id'] === $editId) {
@@ -122,6 +195,14 @@ if ($lieoMatrixLockPlant) {
 }
 $editDept = $editRow['department'] ?? '';
 $editDepts = $editPlant !== '' ? lieo_list_departments_for_plant($editPlant) : [];
+
+// Replace mode: same form, but for picking a NEW person — clear the
+// pre-filled employee, and only ever HOD (the only step with a "Replace" button).
+if ($transferId && $editRow) {
+    $editRow['emp_code'] = '';
+    $editRow['emp_name'] = '';
+    $editRow['emp_email'] = '';
+}
 
 $lieoMatrixAssignments = array_map(static function (array $r): array {
     return [
@@ -144,21 +225,24 @@ require_once __DIR__ . '/../includes/header.php';
 
 <h2 class="lieo-title mb-2">Approval Matrix</h2>
 <p class="text-muted mb-4">
-    <?php if ($_SESSION['lieo_role'] === 'admin'): ?>
-        Admin assigns <strong>Time Office</strong> only (department-wise). Time Office maintains Section Incharge, N-1, HOD, Security and HR Head.
-    <?php else: ?>
-        Assign <strong>Section Incharge</strong> and <strong>N-1</strong> by department, and <strong>HOD / Security / HR Head</strong> once per plant.
-        You cannot assign Time Office. Flow: Section Incharge creates → Time Office → N-1 → HOD → Security at gate.
-        <strong>LIEO Department</strong> (for approvals) may differ from the employee&apos;s AMS department — pick the employee by plant, then choose the LIEO department before save.
-    <?php endif; ?>
-    Saving creates or updates the LIEO login — credentials are emailed; the user must change password on first sign-in.
+    Admin assigns <strong>HOD</strong> and <strong>N-1</strong> by department (one HOD per department; N-1 can be multiple per department),
+    and <strong>Security</strong> once per plant (must be an HR department employee, same as Time Office).
+    Flow: <strong>N-1 creates</strong> the application → <strong>HOD approves</strong> → <strong>Security</strong> closes at the gate with a remark.
+    <strong>HOD, N-1 and Security</strong> assignments need the HR department HOD's approval before they take effect — you'll see them queued
+    until approved. <strong>Time Office</strong> saves immediately (view-only role; not part of the approval chain).
+    Once a request is approved, the LIEO login is created/updated and credentials are emailed; the user must change password on first sign-in.
 </p>
 
 <div class="card shadow-sm mb-4">
-    <div class="card-header bg-white font-weight-bold text-success"><?= $editRow ? 'Edit Assignment' : 'Add Role Assignment' ?></div>
+    <div class="card-header bg-white font-weight-bold text-success">
+        <?= $transferId ? 'Replace HOD — ' . htmlspecialchars($editDept) . ' (' . htmlspecialchars($editPlant) . ')' : ($editRow ? 'Edit Assignment' : 'Add Role Assignment') ?>
+    </div>
     <div class="card-body">
+        <?php if ($transferId): ?>
+        <p class="small text-muted">Pick the new HOD below. The outgoing HOD's record is kept — see the transfer log — and any pending application for this department becomes actionable by the new HOD immediately.</p>
+        <?php endif; ?>
         <form method="post" id="matrixForm" autocomplete="off">
-            <input type="hidden" name="action" value="<?= $editRow ? 'edit' : 'add' ?>">
+            <input type="hidden" name="action" value="<?= $transferId ? 'transfer_hod' : ($editRow ? 'edit' : 'add') ?>">
             <?php if ($editRow): ?><input type="hidden" name="id" value="<?= (int)$editRow['matrix_id'] ?>"><?php endif; ?>
             <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
 
@@ -167,7 +251,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <label>Plant * <small class="text-muted">(search AMS)</small></label>
                     <input type="text" id="plantSearch" class="form-control" placeholder="Type plant e.g. JCP"
                            value="<?= htmlspecialchars($editPlant) ?>" autocomplete="off" required
-                           <?= $lieoMatrixLockPlant ? 'readonly' : '' ?>>
+                           <?= ($lieoMatrixLockPlant || $transferId) ? 'readonly' : '' ?>>
                     <input type="hidden" name="plant" id="plant" value="<?= htmlspecialchars($editPlant) ?>" required>
                     <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
                 </div>
@@ -182,7 +266,7 @@ require_once __DIR__ . '/../includes/header.php';
                             </button>
                         </span>
                     </div>
-                    <select name="department" id="department" class="form-control" required <?= $editPlant === '' ? 'disabled' : '' ?>>
+                    <select name="department" id="department" class="form-control" required <?= ($editPlant === '' || $transferId) ? 'disabled' : '' ?>>
                         <option value="">— Select plant first —</option>
                         <?php foreach ($editDepts as $d): ?>
                         <option value="<?= htmlspecialchars($d) ?>" <?= $editDept === $d ? 'selected' : '' ?>>
@@ -205,14 +289,14 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <div class="form-group col-md-4">
                     <label>Role *</label>
-                    <select name="approval_step" id="approval_step" class="form-control" required>
+                    <select name="approval_step" id="approval_step" class="form-control" required <?= $transferId ? 'disabled' : '' ?>>
                         <?php foreach ($lieoMatrixSteps as $key => $label): ?>
                         <option value="<?= $key ?>" <?= (($editRow['approval_step'] ?? '') === $key) ? 'selected' : '' ?>>
                             <?= htmlspecialchars($label) ?>
                         </option>
                         <?php endforeach; ?>
                     </select>
-                    <small class="text-muted" id="roleHint">HOD, Security and HR Head: pick plant only — one assignee per plant.</small>
+                    <small class="text-muted" id="roleHint">Time Office and Security: pick plant only — one assignee per plant (HR department employee only). HOD: one per department (N-1: multiple allowed).</small>
                 </div>
             </div>
 
@@ -248,7 +332,7 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <div class="form-group col-md-4 d-flex align-items-end">
                     <div class="w-100">
-                        <button type="submit" class="btn btn-lieo btn-block">Save &amp; Provision Login</button>
+                        <button type="submit" class="btn btn-lieo btn-block"><?= $transferId ? 'Submit Replacement' : 'Save & Provision Login' ?></button>
                         <?php if ($editRow): ?><a href="approval_matrix.php<?= $viewPlant !== '' ? ('?plant=' . rawurlencode($viewPlant)) : '' ?>" class="btn btn-link btn-block">Cancel</a><?php endif; ?>
                     </div>
                 </div>
@@ -312,15 +396,44 @@ require_once __DIR__ . '/../includes/header.php';
                         && ($row['user_status'] ?? '') === 'Active'
                         && ($row['must_change_password'] ?? 'f') === 't';
                 ?>
+                <?php
+                    $pendingReq = $pendingByMatrixId[(int) $row['matrix_id']] ?? null;
+                    $pendingReqTitle = '';
+                    if ($pendingReq) {
+                        if (($pendingReq['request_type'] ?? '') === 'delete') {
+                            $pendingReqTitle = 'Removal requested';
+                        } else {
+                            $changes = [];
+                            if ((string) $pendingReq['approval_step'] !== (string) $row['approval_step']) {
+                                $changes[] = 'Role: ' . lieo_step_label($row['approval_step']) . ' → ' . lieo_step_label($pendingReq['approval_step']);
+                            }
+                            if (!lieo_dept_names_equal((string) $pendingReq['department'], (string) $row['department'])) {
+                                $changes[] = 'Dept: ' . $row['department'] . ' → ' . $pendingReq['department'];
+                            }
+                            if (strcasecmp((string) $pendingReq['emp_email'], (string) $row['emp_email']) !== 0) {
+                                $changes[] = 'Employee: ' . $row['emp_name'] . ' → ' . $pendingReq['emp_name'];
+                            }
+                            $pendingReqTitle = $changes ? implode('; ', $changes) : 'Update requested';
+                        }
+                    }
+                ?>
                 <tr>
                     <td class="font-weight-bold"><?= htmlspecialchars($row['plant']) ?></td>
-                    <td><?= htmlspecialchars($row['department'] === 'All' ? 'All departments' : $row['department']) ?></td>
-                    <td><span class="badge badge-info"><?= htmlspecialchars(lieo_step_label($row['approval_step'])) ?></span></td>
+                    <td><?= $row['department'] === 'All' ? '<span class="text-muted">—</span>' : htmlspecialchars($row['department']) ?></td>
+                    <td>
+                        <span class="badge badge-info"><?= htmlspecialchars(lieo_step_label($row['approval_step'])) ?></span>
+                        <?php if ($pendingReq): ?>
+                        <span class="badge badge-warning" title="<?= htmlspecialchars($pendingReqTitle) ?>">Pending: <?= htmlspecialchars($pendingReqTitle) ?></span>
+                        <?php endif; ?>
+                    </td>
                     <td><?= htmlspecialchars($row['emp_code']) ?></td>
                     <td><?= htmlspecialchars($row['emp_name']) ?></td>
                     <td><?= htmlspecialchars($row['emp_email']) ?></td>
                     <td class="text-nowrap">
                         <a href="?edit=<?= (int)$row['matrix_id'] ?><?= $viewPlant ? '&plant=' . urlencode($viewPlant) : '' ?>" class="btn btn-sm btn-outline-primary">Edit</a>
+                        <?php if (($row['approval_step'] ?? '') === 'hod'): ?>
+                        <a href="?transfer=<?= (int)$row['matrix_id'] ?><?= $viewPlant ? '&plant=' . urlencode($viewPlant) : '' ?>" class="btn btn-sm btn-outline-warning">Replace</a>
+                        <?php endif; ?>
                         <?php if ($canResend): ?>
                         <form method="post" class="d-inline"
                               data-lieo-confirm="Resend login credentials email to <?= htmlspecialchars($row['emp_email'], ENT_QUOTES) ?>?"
@@ -1142,7 +1255,10 @@ require_once __DIR__ . '/../includes/header.php';
     });
 
     $role.addEventListener('change', function () {
-        clearEmployeeFields();
+        // Employee list only depends on Plant, not Role — keep the picked
+        // employee (syncDepartmentField()'s preload re-applies it from
+        // editEmpCode). Eligibility (e.g. Security/Time Office must be an
+        // HR department employee) is still enforced server-side on save.
         syncDepartmentField();
     });
 
@@ -1339,6 +1455,12 @@ require_once __DIR__ . '/../includes/header.php';
         var role = $role.value;
         var dept = isPlantOnlyRole() ? 'All' : ($dept.value || '').trim();
         var empCode = String(document.getElementById('emp_code').value || '').trim();
+        // N-1 allows multiple approvers per department, so picking an
+        // employee already assigned there is never a "replace" — unlike
+        // HOD (one per department) and Time Office/Security (one per plant).
+        if (role === 'n1') {
+            return null;
+        }
         if (!plant || !role || (!isPlantOnlyRole() && !dept) || !empCode) {
             return null;
         }

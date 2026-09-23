@@ -145,12 +145,10 @@ function lieo_local_test_users(): array
 
     $defs = [
         ['id' => -1, 'role' => 'admin', 'label' => 'Admin', 'email' => 'lieo.admin@local.test', 'name' => 'LIEO Local Admin', 'code' => 'LOC-ADM', 'plant' => $plant, 'department' => ''],
-        ['id' => -2, 'role' => 'section_incharge', 'label' => 'Section Incharge', 'email' => 'lieo.si@local.test', 'name' => 'LIEO Local Section Incharge', 'code' => 'LOC-SI', 'plant' => $plant, 'department' => $dept],
         ['id' => -3, 'role' => 'timeoffice', 'label' => 'Time Office', 'email' => 'lieo.timeoffice@local.test', 'name' => 'LIEO Local Time Office', 'code' => 'LOC-TO', 'plant' => $plant, 'department' => $dept],
         ['id' => -4, 'role' => 'n1', 'label' => 'N-1', 'email' => 'lieo.n1@local.test', 'name' => 'LIEO Local N-1', 'code' => 'LOC-N1', 'plant' => $plant, 'department' => $dept],
         ['id' => -5, 'role' => 'hod', 'label' => 'HOD', 'email' => 'lieo.hod@local.test', 'name' => 'LIEO Local HOD', 'code' => 'LOC-HOD', 'plant' => $plant, 'department' => ''],
         ['id' => -6, 'role' => 'security', 'label' => 'Security', 'email' => 'lieo.security@local.test', 'name' => 'LIEO Local Security', 'code' => 'LOC-SEC', 'plant' => $plant, 'department' => ''],
-        ['id' => -7, 'role' => 'hr', 'label' => 'HR Head', 'email' => 'lieo.hr@local.test', 'name' => 'LIEO Local HR Head', 'code' => 'LOC-HR', 'plant' => $plant, 'department' => ''],
     ];
 
     $users = [];

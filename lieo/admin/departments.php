@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['lieo_mess_type'] = 'danger';
     } elseif ($action === 'add' || $action === 'edit') {
         $id = $action === 'edit' ? (int) ($_POST['id'] ?? 0) : null;
-        $result = lieo_save_plant_department($postPlant, $_POST['department_name'] ?? '', $id);
+        $result = lieo_save_plant_department($postPlant, $_POST['department_name'] ?? '', $id, !empty($_POST['is_hr']), (string) ($_POST['ams_department_name'] ?? ''));
         if (!empty($result['ok'])) {
             $_SESSION['lieo_mess'] = 'Department saved.';
             $_SESSION['lieo_mess_type'] = 'success';
@@ -81,6 +81,47 @@ if ($editRow && $plant === '') {
 }
 $amsHint = $plant !== '' ? lieo_list_ams_departments($plant) : [];
 $overviewRows = lieo_list_all_plant_departments($filterPlant !== '' ? $filterPlant : null);
+
+$overviewPlants = $filterPlant !== '' ? [$filterPlant] : $plantsWithDeptData;
+$overviewCombined = [];
+foreach ($overviewRows as $r) {
+    $overviewCombined[] = [
+        'plant' => lieo_ams_canonical_plant((string) ($r['plant'] ?? '')) ?: (string) ($r['plant'] ?? ''),
+        'department_name' => (string) ($r['department_name'] ?? ''),
+        'source' => 'extra',
+        'is_hr' => $r['is_hr'] ?? 'f',
+        'status' => $r['status'] ?? '',
+        'dept_id' => (int) ($r['dept_id'] ?? 0),
+    ];
+}
+foreach ($overviewPlants as $p) {
+    foreach (lieo_list_ams_departments($p) as $amsDept) {
+        $alreadyExtra = false;
+        foreach ($overviewRows as $r) {
+            if (lieo_ams_canonical_plant((string) ($r['plant'] ?? '')) === $p
+                && lieo_dept_names_equal((string) ($r['department_name'] ?? ''), $amsDept)) {
+                $alreadyExtra = true;
+                break;
+            }
+        }
+        if ($alreadyExtra) {
+            continue;
+        }
+        $overviewCombined[] = [
+            'plant' => $p,
+            'department_name' => $amsDept,
+            'source' => 'ams',
+            'is_hr' => 'f',
+            'status' => '',
+            'dept_id' => 0,
+        ];
+    }
+}
+usort($overviewCombined, function ($a, $b) {
+    return $a['plant'] === $b['plant']
+        ? strcasecmp($a['department_name'], $b['department_name'])
+        : strcasecmp($a['plant'], $b['plant']);
+});
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -126,6 +167,7 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <style>
+.lieo-ams-row { background: #f0f9ff; }
 .lieo-dept-plant-pick .card-body { overflow: visible; }
 .lieo-dept-plant-input-wrap {
     position: relative;
@@ -213,12 +255,23 @@ require_once __DIR__ . '/../includes/header.php';
             <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
             <?php if ($editRow): ?><input type="hidden" name="id" value="<?= (int) $editRow['dept_id'] ?>"><?php endif; ?>
             <label class="mr-2 mb-2">Department name</label>
-            <input type="text" name="department_name" class="form-control mr-2 mb-2" required
+            <input type="text" name="department_name" id="deptNameInput" class="form-control mr-2 mb-2" required
                    value="<?= htmlspecialchars($editRow['department_name'] ?? '') ?>">
+            <div class="custom-control custom-checkbox mr-2 mb-2">
+                <input type="checkbox" class="custom-control-input" id="isHrCheck" name="is_hr" value="1"
+                       <?= !empty($editRow['is_hr']) && $editRow['is_hr'] === 't' ? 'checked' : '' ?>>
+                <label class="custom-control-label" for="isHrCheck">This is the HR department</label>
+            </div>
             <button class="btn btn-lieo mb-2"><?= $editRow ? 'Update' : 'Add' ?></button>
             <?php if ($editRow): ?>
                 <a href="<?= htmlspecialchars(lieo_admin_departments_url($plant, $filterPlant)) ?>" class="btn btn-link mb-2">Cancel</a>
             <?php endif; ?>
+            <small class="text-muted d-block w-100 mt-1">
+                Only one department per plant can be marked HR — checking it here unchecks any other.
+                This flags which department unlocks the HOD's "User Approval" / "Plant Users" tabs. To also gate
+                Time Office / Security assignment by an employee's AMS Department, tick the HR checkbox on that
+                department's row in the AMS overview below instead — it maps itself automatically.
+            </small>
         </form>
     </div>
 </div>
@@ -255,27 +308,47 @@ require_once __DIR__ . '/../includes/header.php';
                 <tr>
                     <th>Plant</th>
                     <th>Department</th>
+                    <th>HR?</th>
                     <th>Status</th>
                     <th class="text-nowrap">Action</th>
                 </tr>
             </thead>
             <tbody>
-            <?php if (!$overviewRows): ?>
-                <tr><td colspan="4" class="text-muted text-center py-4">No extra departments saved yet.</td></tr>
+            <?php if (!$overviewCombined): ?>
+                <tr><td colspan="5" class="text-muted text-center py-4">No departments to show yet.</td></tr>
             <?php endif; ?>
-            <?php foreach ($overviewRows as $r): ?>
+            <?php foreach ($overviewCombined as $r): ?>
+                <?php if ($r['source'] === 'ams'): ?>
+                <tr class="lieo-ams-row">
+                    <td class="font-weight-bold"><?= htmlspecialchars($r['plant']) ?></td>
+                    <td><?= htmlspecialchars($r['department_name']) ?> <span class="badge badge-info">AMS</span></td>
+                    <td>
+                        <form method="post" class="d-inline" title="Mark as this plant's HR department">
+                            <input type="hidden" name="action" value="add">
+                            <input type="hidden" name="plant" value="<?= htmlspecialchars($r['plant']) ?>">
+                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
+                            <input type="hidden" name="department_name" value="<?= htmlspecialchars($r['department_name']) ?>">
+                            <input type="hidden" name="ams_department_name" value="<?= htmlspecialchars($r['department_name']) ?>">
+                            <input type="checkbox" name="is_hr" value="1" onchange="this.form.submit()">
+                        </form>
+                    </td>
+                    <td class="text-muted small">—</td>
+                    <td class="text-muted small">—</td>
+                </tr>
+                <?php continue; endif; ?>
                 <?php
-                    $rowPlant = lieo_ams_canonical_plant((string) ($r['plant'] ?? '')) ?: (string) ($r['plant'] ?? '');
-                    $deptId = (int) ($r['dept_id'] ?? 0);
+                    $rowPlant = $r['plant'];
+                    $deptId = $r['dept_id'];
                 ?>
                 <tr>
                     <td class="font-weight-bold"><?= htmlspecialchars($rowPlant) ?></td>
-                    <td><?= htmlspecialchars($r['department_name'] ?? '') ?></td>
-                    <td><?= lieo_status_badge($r['status'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($r['department_name']) ?></td>
+                    <td><?= $r['is_hr'] === 't' ? '<span class="badge badge-success">HR</span>' : '' ?></td>
+                    <td><?= lieo_status_badge($r['status']) ?></td>
                     <td class="text-nowrap">
                         <a href="<?= htmlspecialchars(lieo_admin_departments_url($rowPlant, $filterPlant, $deptId)) ?>"
                            class="btn btn-sm btn-outline-primary">Edit</a>
-                        <?php if (($r['status'] ?? '') === 'Active'): ?>
+                        <?php if ($r['status'] === 'Active'): ?>
                         <form method="post" class="d-inline"
                               data-lieo-confirm="Deactivate this department?"
                               data-lieo-confirm-title="Deactivate department"

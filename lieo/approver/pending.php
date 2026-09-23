@@ -52,16 +52,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$pending = lieo_list_applications(lieo_apply_session_plant_scope(['pending_for_role' => $role]));
+$hodDepts = [];
+$deptFilter = '';
+if ($role === 'hod') {
+    $hodDepts = lieo_list_matrix_departments_for_user(
+        (string) ($_SESSION['lieo_emp_code'] ?? ''),
+        (string) ($_SESSION['lieo_plant'] ?? ''),
+        'hod'
+    );
+    $deptFilter = trim($_GET['dept'] ?? '');
+    if ($deptFilter !== '' && !in_array($deptFilter, $hodDepts, true)) {
+        $deptFilter = '';
+    }
+}
+$pendingFilters = ['pending_for_role' => $role];
+if ($deptFilter !== '') {
+    $pendingFilters['department'] = $deptFilter;
+}
+$pending = lieo_list_applications(lieo_apply_session_plant_scope($pendingFilters));
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <h2 class="lieo-title mb-2"><?= htmlspecialchars(lieo_step_label($role)) ?> Approvals</h2>
 <p class="text-muted mb-4">
-    Late IN / Early Out requests waiting for your action. Chain: Time Office → N-1 → HOD.
+    Late IN / Early Out requests waiting for your action. Chain: N-1 creates → HOD approves → Security closes at gate.
     <a href="history.php">View my history (full remark trail)</a>
 </p>
+
+<?php if (count($hodDepts) > 1): ?>
+<div class="mb-3">
+    <a href="pending.php" class="btn btn-sm <?= $deptFilter === '' ? 'btn-lieo' : 'btn-outline-secondary' ?>">All departments</a>
+    <?php foreach ($hodDepts as $d): ?>
+    <a href="pending.php?dept=<?= urlencode($d) ?>" class="btn btn-sm <?= $deptFilter === $d ? 'btn-lieo' : 'btn-outline-secondary' ?>"><?= htmlspecialchars($d) ?></a>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
 
 <?php if (empty($pending)): ?>
 <div class="alert alert-success">No pending items for your role.</div>

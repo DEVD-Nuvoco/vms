@@ -11,57 +11,52 @@ $plant = lieo_ams_canonical_plant($_SESSION['lieo_plant'] ?? '');
 $dept = trim((string) ($_SESSION['lieo_department'] ?? ''));
 
 if (!isset($recentApps) || !is_array($recentApps)) {
-    $recentFilters = lieo_apply_session_plant_scope(['date' => $date]);
-    if ($role === 'section_incharge') {
-        $recentFilters['created_by'] = (int) ($_SESSION['lieo_user_id'] ?? 0);
-    }
-    $recentApps = lieo_list_applications($recentFilters);
+    $recentApps = lieo_list_applications(lieo_apply_session_plant_scope(['date' => $date]));
 }
 $recentApps = array_slice($recentApps, 0, 10);
 
 $pendingUrl = match ($role) {
-    'timeoffice' => 'pending.php',
     'n1', 'hod' => 'pending.php',
-    'section_incharge' => 'applications.php',
     default => 'applications.php',
 };
-$trackUrl = match ($role) {
-    'section_incharge' => 'applications.php',
-    'timeoffice' => 'applications.php',
-    'n1', 'hod' => 'applications.php',
-    default => 'applications.php',
-};
+$trackUrl = 'applications.php';
 $historyUrl = 'history.php';
 
 $quickActions = [];
-if ($role === 'section_incharge') {
+if ($role === 'timeoffice') {
+    $quickActions = [
+        ['label' => 'Application Tracking', 'url' => 'applications.php', 'icon' => 'typcn-th-list', 'primary' => true],
+        ['label' => 'My History', 'url' => 'history.php', 'icon' => 'typcn-time'],
+    ];
+} elseif ($role === 'n1') {
     $quickActions = [
         ['label' => 'Create Application', 'url' => 'create_application.php', 'icon' => 'typcn-document-add', 'primary' => true],
         ['label' => 'Application Tracking', 'url' => 'applications.php', 'icon' => 'typcn-th-list'],
         ['label' => 'My History', 'url' => 'history.php', 'icon' => 'typcn-time'],
     ];
-} elseif ($role === 'timeoffice') {
-    $quickActions = [
-        ['label' => 'Pending Approvals', 'url' => 'pending.php', 'icon' => 'typcn-tick-outline', 'primary' => true, 'badge' => (int) ($stats['pending_mine'] ?? 0)],
-        ['label' => 'Application Tracking', 'url' => 'applications.php', 'icon' => 'typcn-th-list'],
-        ['label' => 'Approval Matrix', 'url' => 'approval_matrix.php', 'icon' => 'typcn-flow-merge'],
-        ['label' => 'Department Master', 'url' => 'departments.php', 'icon' => 'typcn-th-large'],
-        ['label' => 'Contractor Master', 'url' => 'contractors.php', 'icon' => 'typcn-briefcase'],
-        ['label' => 'Notification Mail', 'url' => 'notification_mail.php', 'icon' => 'typcn-mail'],
-    ];
-} elseif ($role === 'n1' || $role === 'hod') {
+} elseif ($role === 'hod') {
     $quickActions = [
         ['label' => 'Pending Approvals', 'url' => 'pending.php', 'icon' => 'typcn-tick-outline', 'primary' => true, 'badge' => (int) ($stats['pending_mine'] ?? 0)],
         ['label' => 'Application Tracking', 'url' => 'applications.php', 'icon' => 'typcn-th-list'],
         ['label' => 'My History', 'url' => 'history.php', 'icon' => 'typcn-time'],
     ];
+    if (function_exists('lieo_is_hr_hod') && lieo_is_hr_hod((string) ($_SESSION['lieo_emp_code'] ?? ''), $plant)) {
+        // Admin's HOD/N-1/Security role-assignment requests — a separate
+        // pending queue from the application stats above, so it needs its
+        // own badge or a pending one is easy to miss on this dashboard.
+        $pendingUserRequests = function_exists('lieo_list_user_requests') ? count(lieo_list_user_requests($plant, 'Pending')) : 0;
+        $quickActions[] = ['label' => 'User Approval', 'url' => 'user_requests.php', 'icon' => 'typcn-user-add-outline', 'badge' => $pendingUserRequests];
+        $quickActions[] = ['label' => 'Plant Users', 'url' => 'plant_users.php', 'icon' => 'typcn-group-outline'];
+    }
+}
+if ($role === 'n1') {
+    $showCreate = true;
 }
 
 $workflowHint = match ($role) {
-    'section_incharge' => 'Create Late IN / Early Out applications for your department. After submit they go to Time Office → N-1 → HOD → Security at gate.',
-    'timeoffice' => 'First approver after Section Incharge. Maintain matrix, departments, contractors and notification mails for your plant.',
-    'n1' => 'Approve or reject after Time Office. Applications then move to HOD.',
-    'hod' => 'Final plant approval before Security. After you approve, Security closes at gate with remark and time.',
+    'timeoffice' => 'View-only tracking role for your plant (HR department, plant-specific). Not part of the approval chain.',
+    'n1' => 'Create Late IN / Early Out applications for your department. HOD approves next, then Security closes at gate.',
+    'hod' => 'Approve applications created by N-1 for your department(s). After you approve, Security closes at gate with remark and time.',
     default => 'Late IN / Early Out (LIEO) workflow for your plant.',
 };
 ?>
@@ -146,15 +141,15 @@ $workflowHint = match ($role) {
                     <div class="mb-2" style="font-size:1.75rem;opacity:.45;"><i class="typcn typcn-tick-outline"></i></div>
                     <div class="font-weight-bold text-dark">Nothing pending for you</div>
                     <div class="small mt-1">
-                        <?php if ($role === 'section_incharge'): ?>
+                        <?php if ($showCreate): ?>
                             Create a new Late IN / Early Out application when needed.
                         <?php else: ?>
-                            New items appear here when the previous step approves.
+                            New items appear here when N-1 creates an application for your department.
                         <?php endif; ?>
                     </div>
                     <?php if ($showCreate): ?>
                     <a href="create_application.php" class="btn btn-sm btn-lieo mt-3">Create Application</a>
-                    <?php elseif ($role === 'timeoffice' || $role === 'n1' || $role === 'hod'): ?>
+                    <?php elseif ($role === 'hod'): ?>
                     <a href="<?= htmlspecialchars($pendingUrl) ?>" class="btn btn-sm btn-outline-secondary mt-3">Go to Pending</a>
                     <?php endif; ?>
                 </div>
@@ -241,10 +236,8 @@ $workflowHint = match ($role) {
         <div class="d-flex flex-wrap align-items-center lieo-dash-flow small">
             <?php
             $steps = [
-                'section_incharge' => 'Section Incharge',
-                'timeoffice' => 'Time Office',
-                'n1' => 'N-1',
-                'hod' => 'HOD',
+                'n1' => 'N-1 (creates)',
+                'hod' => 'HOD (approves)',
                 'security' => 'Security (Gate)',
             ];
             $i = 0;

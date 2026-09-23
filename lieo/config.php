@@ -25,38 +25,60 @@ if (!defined('LIEO_PUBLIC_BASE_URL')) {
     define('LIEO_PUBLIC_BASE_URL', 'https://vms.nuvoco.in/lieo');
 }
 
-/** Phase 1 roles (no contractor login). Supervisor is not a login/approver. */
+/**
+ * Live roles. 'section_incharge' and 'hr' are retired (blocked at login,
+ * see login.php) — Section Incharge's job moved to N-1 (creates directly);
+ * HR Head's job (contractor reactivation approval) moved to the HR
+ * department HOD (see lieo_is_hr_hod(), approver/reactivation.php). Their
+ * DB enum values are left in place for any historical row, just no longer
+ * offered anywhere in the app.
+ */
 $LIEO_ROLES = [
     'admin'            => ['label' => 'Admin',             'group' => 'admin', 'icon' => 'typcn-cog-outline'],
-    'section_incharge' => ['label' => 'Section Incharge',  'group' => 'user',  'icon' => 'typcn-user-outline'],
     'timeoffice'       => ['label' => 'Time Office',       'group' => 'user',  'icon' => 'typcn-time'],
     'n1'               => ['label' => 'N-1 Approver',      'group' => 'user',  'icon' => 'typcn-user-add-outline'],
     'hod'              => ['label' => 'HOD',               'group' => 'user',  'icon' => 'typcn-group-outline'],
     'security'         => ['label' => 'Security',          'group' => 'user',  'icon' => 'typcn-lock-closed-outline'],
-    'hr'               => ['label' => 'HR Head',           'group' => 'user',  'icon' => 'typcn-contacts'],
 ];
 
 /** Roles assignable via Approval Matrix (admin not included). */
 $LIEO_APPROVAL_STEPS = [
-    'section_incharge' => 'Section Incharge',
     'timeoffice'       => 'Time Office',
     'n1'               => 'N-1 Approver',
     'hod'              => 'HOD',
     'security'         => 'Security',
-    'hr'               => 'HR Head',
 ];
 
-/** Steps Time Office may assign (cannot assign Time Office). */
-$LIEO_TO_MATRIX_STEPS = ['section_incharge', 'n1', 'hod', 'security', 'hr'];
+/**
+ * Steps Admin can assign on the Approval Matrix page. Time Office no longer
+ * maintains the matrix at all (view-only/tracking role now) — Admin is the
+ * only one left who assigns it, same as before, and that assignment stays a
+ * direct/live save (spec only requires HR-department-HOD approval for
+ * "the HOD, N-1 and Security role" — Time Office isn't in that list).
+ */
+$LIEO_ADMIN_MATRIX_STEPS = ['timeoffice', 'hod', 'n1', 'security'];
 
-/** Admin only assigns Time Office. */
-$LIEO_ADMIN_MATRIX_STEPS = ['timeoffice'];
+/**
+ * Subset of $LIEO_ADMIN_MATRIX_STEPS that must go through the pending
+ * tbl_lieo_user_request approval flow (HR-department HOD sign-off) instead of
+ * saving live — see lieo_submit_user_request().
+ */
+$LIEO_ADMIN_REQUEST_GATED_STEPS = ['hod', 'n1', 'security'];
 
-/** Matrix roles scoped to plant only (department stored as "All"). */
-$LIEO_MATRIX_PLANT_ROLES = ['hod', 'security', 'hr'];
+/**
+ * Matrix roles scoped to plant only (department stored as "All").
+ * 'hod' is per-department now (removed from this list) — see
+ * lieo_list_matrix_departments_for_user() for how one person can still hold
+ * HOD for more than one department.
+ */
+$LIEO_MATRIX_PLANT_ROLES = ['timeoffice', 'security'];
 
-/** LC/EG approval chain after create (Section Incharge creates). */
-$LIEO_APP_CHAIN = ['timeoffice', 'n1', 'hod'];
+/**
+ * Approval chain after create: N-1 creates the application directly (see
+ * approver/create_application.php), HOD approves, then Security closes at
+ * the gate. Only 'hod' remains a chain step.
+ */
+$LIEO_APP_CHAIN = ['hod'];
 
 $LIEO_CONTRACTOR_TYPES = ['Supply', 'Temporary', 'Measurement'];
 /** @deprecated use $LIEO_CONTRACTOR_TYPES */
@@ -114,7 +136,12 @@ function lieo_require_login(): void
 function lieo_require_role(array $allowed): void
 {
     lieo_require_login();
-    if (!in_array($_SESSION['lieo_role'], $allowed, true)) {
+    // A person who is both N-1 and Security (the one dual-role combo LIEO
+    // allows — N-1 creates the application, Security closes it at the gate)
+    // carries the second role in lieo_secondary_role, since their login row
+    // only has one primary role.
+    $roles = array_filter([$_SESSION['lieo_role'] ?? null, $_SESSION['lieo_secondary_role'] ?? null]);
+    if (!array_intersect($roles, $allowed)) {
         http_response_code(403);
         die('Access denied for this role.');
     }
@@ -194,18 +221,12 @@ function lieo_dashboard_url(string $role): string
     $path = 'approver/pending.php';
     if ($role === 'admin') {
         $path = 'admin/index.php';
-    } elseif ($role === 'section_incharge') {
-        $path = 'section_incharge/index.php';
     } elseif ($role === 'timeoffice') {
         $path = 'timeoffice/index.php';
-    } elseif ($role === 'hod') {
-        $path = 'approver/dashboard.php';
-    } elseif ($role === 'n1') {
+    } elseif ($role === 'hod' || $role === 'n1') {
         $path = 'approver/dashboard.php';
     } elseif ($role === 'security') {
         $path = 'security/attendance.php';
-    } elseif ($role === 'hr') {
-        $path = 'hr/reactivation.php';
     }
     return lieo_web_base() . '/' . $path;
 }
@@ -243,10 +264,8 @@ function lieo_nav_url(string $role, string $file): string
 {
     $folders = [
         'admin' => 'admin',
-        'section_incharge' => 'section_incharge',
         'timeoffice' => 'timeoffice',
         'security' => 'security',
-        'hr' => 'hr',
         'n1' => 'approver',
         'hod' => 'approver',
     ];
@@ -809,18 +828,18 @@ function lieo_notify_application_created(array $app): void
 {
     $plant = $app['plant'] ?? '';
     $dept = $app['department'] ?? '';
-    $to = lieo_matrix_notify_recipient($plant, $dept, 'timeoffice');
+    $to = lieo_matrix_notify_recipient($plant, $dept, 'hod');
     if ($to) {
         $subject = LIEO_APP_SHORT . ' :: New application pending — ' . ($app['application_no'] ?? '');
         $body = 'Dear ' . htmlspecialchars($to['name']) . ',<br><br>'
-            . 'A new <strong>Late IN / Early Out</strong> application has been created by Section Incharge and is pending your approval (Time Office).<br><br>'
+            . 'A new <strong>Late IN / Early Out</strong> application has been created by N-1 and is pending your approval (HOD).<br><br>'
             . lieo_application_email_block($app)
             . '<br>Please sign in to LIEO to action it.';
         lieo_send_mail($to['email'], $to['name'], $subject, $body, [], [
             'context' => 'Application Created',
-            'headline' => 'New application pending Time Office',
+            'headline' => 'New application pending HOD',
             'subhead' => 'Late IN / Early Out requires your approval.',
-            'to_role' => 'Time Office',
+            'to_role' => 'HOD',
             'cards' => lieo_application_mail_cards($app),
         ]);
     }
@@ -868,7 +887,7 @@ function lieo_notify_application_action(array $app, string $actorRole, string $a
                 'context' => 'Application Rejected',
                 'headline' => 'Application rejected',
                 'subhead' => 'Late IN / Early Out application was rejected.',
-                'to_role' => lieo_role_label((string) ($creator['role'] ?? 'section_incharge')),
+                'to_role' => lieo_role_label((string) ($creator['role'] ?? 'n1')),
                 'cards' => lieo_application_mail_cards(array_merge($app, ['status' => 'Rejected'])),
             ]);
         }
@@ -896,6 +915,10 @@ function lieo_notify_application_action(array $app, string $actorRole, string $a
         return;
     }
 
+    // Only 'hod' is reachable going forward (N-1 creates -> HOD approves ->
+    // gate); the Pending_n1/Pending_timeoffice entries stay mapped only so a
+    // pre-redesign application still mid-flight in a legacy state can still
+    // notify correctly rather than silently do nothing.
     $nextMap = [
         'Pending_n1' => 'n1',
         'Pending_hod' => 'hod',
@@ -944,7 +967,7 @@ function lieo_notify_gate_closed(array $app, string $gateAction, string $remark)
         'context' => 'Gate Closed',
         'headline' => 'Application closed at gate',
         'subhead' => $label . ' completed by Security.',
-        'to_role' => lieo_role_label((string) ($creator['role'] ?? 'section_incharge')),
+        'to_role' => lieo_role_label((string) ($creator['role'] ?? 'n1')),
         'cards' => lieo_application_mail_cards(array_merge($app, ['status' => 'Gate_completed'])),
     ]);
 }
@@ -952,8 +975,9 @@ function lieo_notify_gate_closed(array $app, string $gateAction, string $remark)
 function lieo_notify_reactivation_requested(array $contractor): void
 {
     $plant = lieo_ams_canonical_plant($contractor['plant'] ?? ($_SESSION['lieo_plant'] ?? ''));
-    $hr = $plant !== '' ? lieo_matrix_notify_recipient($plant, 'All', 'hr') : null;
-    $toList = $hr ? [$hr] : lieo_list_role_notify_recipients('hr');
+    $hrDept = $plant !== '' ? lieo_hr_department_name($plant) : null;
+    $hr = $hrDept !== null ? lieo_matrix_notify_recipient($plant, $hrDept, 'hod') : null;
+    $toList = $hr ? [$hr] : [];
     $cc = $plant !== '' ? lieo_list_plant_notify_emails($plant) : [];
     $cname = trim((string) ($contractor['contractor_name'] ?? ''));
     $subject = LIEO_APP_SHORT . ' :: Contractor reactivation requested';
@@ -973,8 +997,8 @@ function lieo_notify_reactivation_requested(array $contractor): void
         lieo_send_mail($to['email'], $to['name'], $subject, $body, $cc, [
             'context' => 'Contractor Reactivation',
             'headline' => 'Contractor reactivation requested',
-            'subhead' => 'HR Head decision required.',
-            'to_role' => 'HR Head',
+            'subhead' => 'HR department HOD decision required.',
+            'to_role' => 'HOD',
             'cc_roles' => $ccRoles,
             'cards' => [
                 ['label' => 'Contractor', 'value' => $cname !== '' ? $cname : '—'],
@@ -993,7 +1017,8 @@ function lieo_notify_reactivation_decided(array $contractor, string $decision): 
     $ok = strtolower($decision) === 'approve';
     $subject = LIEO_APP_SHORT . ' :: Contractor reactivation ' . ($ok ? 'approved' : 'rejected');
     $to = lieo_list_role_notify_recipients('timeoffice');
-    $hr = $plant !== '' ? lieo_matrix_notify_recipient($plant, 'All', 'hr') : null;
+    $hrDept = $plant !== '' ? lieo_hr_department_name($plant) : null;
+    $hr = $hrDept !== null ? lieo_matrix_notify_recipient($plant, $hrDept, 'hod') : null;
     if ($hr) {
         $to[] = $hr;
     }
@@ -1003,17 +1028,74 @@ function lieo_notify_reactivation_decided(array $contractor, string $decision): 
     }
     foreach ($to as $row) {
         $body = 'Dear ' . htmlspecialchars($row['name']) . ',<br><br>'
-            . 'HR Head has <strong>' . ($ok ? 'approved' : 'rejected') . '</strong> reactivation of contractor '
+            . 'The HR department HOD has <strong>' . ($ok ? 'approved' : 'rejected') . '</strong> reactivation of contractor '
             . '<strong>' . htmlspecialchars($cname) . '</strong> (plant ' . htmlspecialchars($plant) . ').';
         lieo_send_mail($row['email'], $row['name'], $subject, $body, $cc, [
             'context' => 'Contractor Reactivation',
             'headline' => 'Contractor reactivation ' . ($ok ? 'approved' : 'rejected'),
-            'subhead' => 'HR Head decision completed.',
-            'to_role' => 'Time Office / HR',
+            'subhead' => 'HR department HOD decision completed.',
+            'to_role' => 'Time Office / HOD',
             'cc_roles' => $ccRoles,
             'cards' => [
                 ['label' => 'Contractor', 'value' => $cname !== '' ? $cname : '—'],
                 ['label' => 'Plant', 'value' => $plant !== '' ? $plant : '—'],
+                ['label' => 'Decision', 'value' => $ok ? 'Approved' : 'Rejected'],
+            ],
+        ]);
+    }
+}
+
+/** Notify the HR-department HOD that a create/update/delete user request needs their decision. */
+function lieo_notify_user_request_submitted(array $request): void
+{
+    $plant = lieo_ams_canonical_plant($request['plant'] ?? '');
+    $hrDept = $plant !== '' ? lieo_hr_department_name($plant) : null;
+    $to = $hrDept !== null ? lieo_matrix_notify_recipient($plant, $hrDept, 'hod') : null;
+    if (!$to) {
+        return;
+    }
+    $roleLabel = lieo_role_label((string) ($request['approval_step'] ?? ''));
+    $typeLabel = ucfirst((string) ($request['request_type'] ?? 'create'));
+    $subject = LIEO_APP_SHORT . ' :: User ' . strtolower($typeLabel) . ' request pending — ' . $roleLabel;
+    $body = 'Dear ' . htmlspecialchars($to['name']) . ',<br><br>'
+        . 'Admin has submitted a <strong>' . htmlspecialchars($typeLabel) . '</strong> request for role '
+        . '<strong>' . htmlspecialchars($roleLabel) . '</strong>, awaiting your approval.<br><br>'
+        . 'Please sign in to LIEO → User Approval to review it.';
+    lieo_send_mail($to['email'], $to['name'], $subject, $body, [], [
+        'context' => 'User Request',
+        'headline' => $typeLabel . ' request pending — ' . $roleLabel,
+        'subhead' => 'HR department HOD decision required.',
+        'to_role' => 'HOD',
+        'cards' => [
+            ['label' => 'Role', 'value' => $roleLabel],
+            ['label' => 'Employee', 'value' => (string) ($request['emp_name'] ?? '—')],
+            ['label' => 'Plant / Dept', 'value' => trim($plant . ' / ' . ($request['department'] ?? '')) ?: '—'],
+        ],
+    ]);
+}
+
+/** Notify the requesting Admin that the HR-department HOD decided a user request. */
+function lieo_notify_user_request_decided(array $request, string $decision): void
+{
+    $requestedBy = lieo_user_notify_recipient((int) ($request['requested_by'] ?? 0));
+    $to = $requestedBy ? [$requestedBy] : lieo_list_role_notify_recipients('admin');
+    $roleLabel = lieo_role_label((string) ($request['approval_step'] ?? ''));
+    $ok = $decision === 'Approved';
+    $subject = LIEO_APP_SHORT . ' :: User request ' . strtolower($decision) . ' — ' . $roleLabel;
+    foreach ($to as $row) {
+        $body = 'Dear ' . htmlspecialchars($row['name']) . ',<br><br>'
+            . 'Your request for role <strong>' . htmlspecialchars($roleLabel) . '</strong> ('
+            . htmlspecialchars((string) ($request['emp_name'] ?? '')) . ') was <strong>'
+            . htmlspecialchars(strtolower($decision)) . '</strong> by the HR department HOD.'
+            . (!empty($request['decision_remark']) ? '<br><strong>Remark:</strong> ' . htmlspecialchars($request['decision_remark']) : '');
+        lieo_send_mail($row['email'], $row['name'], $subject, $body, [], [
+            'context' => 'User Request',
+            'headline' => 'User request ' . strtolower($decision),
+            'subhead' => 'HR department HOD decision completed.',
+            'to_role' => 'Admin',
+            'cards' => [
+                ['label' => 'Role', 'value' => $roleLabel],
+                ['label' => 'Employee', 'value' => (string) ($request['emp_name'] ?? '—')],
                 ['label' => 'Decision', 'value' => $ok ? 'Approved' : 'Rejected'],
             ],
         ]);

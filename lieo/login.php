@@ -1,9 +1,18 @@
 <?php
 require_once __DIR__ . '/config.php';
 
+if (($_GET['add'] ?? '') === 'manually') {
+    if (lieo_is_logged_in() && $_SESSION['lieo_role'] === 'admin') {
+        require __DIR__ . '/admin/users_manual.php';
+        exit;
+    }
+    // Not an admin session — fall through to the normal sign-in screen below.
+}
+
 if (isset($_GET['switch'])) {
     unset(
         $_SESSION['lieo_role'],
+        $_SESSION['lieo_secondary_role'],
         $_SESSION['lieo_user_email'],
         $_SESSION['lieo_user_name'],
         $_SESSION['lieo_user_id'],
@@ -46,8 +55,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $error = 'Invalid LIEO password. Use the password emailed when the role was assigned (not your VMS password).';
             }
+        } elseif (($user['role'] ?? '') === 'section_incharge') {
+            $error = 'The Section Incharge role has been discontinued. N-1 now creates applications directly — contact Admin.';
+        } elseif (($user['role'] ?? '') === 'hr') {
+            $error = 'The HR Head role has been discontinued. The HR department HOD now approves contractor reactivation — contact Admin.';
         } else {
             $_SESSION['lieo_role'] = $user['role'];
+            $_SESSION['lieo_secondary_role'] = lieo_user_secondary_role((string) $user['role'], (string) $user['email']);
             $_SESSION['lieo_user_email'] = $user['email'];
             $_SESSION['lieo_user_name'] = $user['full_name'];
             $_SESSION['lieo_user_id'] = (int) $user['lieo_user_id'];

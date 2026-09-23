@@ -76,7 +76,7 @@ lieo_page_header(
 
     <?php if (!$applications): ?>
 
-        <?php lieo_empty_state('No applications for your plant', 'LC/EG requests appear here once Time Office creates them.'); ?>
+        <?php lieo_empty_state('No applications for your plant', 'LC/EG requests appear here once N-1 creates them and HOD approves.'); ?>
 
     <?php else: ?>
 

@@ -95,8 +95,10 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="card shadow-sm">
             <div class="card-header bg-white font-weight-bold">Quick Actions</div>
             <div class="card-body">
-                <a href="approval_matrix.php" class="btn btn-lieo btn-block mb-2">Time Office Users</a>
-                <a href="departments.php" class="btn btn-outline-success btn-block">Department Master</a>
+                <a href="approval_matrix.php" class="btn btn-lieo btn-block mb-2">Approval Matrix (HOD / N-1 / Security / Time Office)</a>
+                <a href="<?= htmlspecialchars(lieo_web_base()) ?>/login.php?add=manually" class="btn btn-outline-success btn-block mb-2">Add User (Manual)</a>
+                <a href="users_bulk_upload.php" class="btn btn-outline-success btn-block mb-2">Bulk Upload Users</a>
+                <a href="departments.php" class="btn btn-outline-secondary btn-block">Department Master</a>
             </div>
         </div>
     </div>
@@ -105,10 +107,11 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="card-header bg-white font-weight-bold">Approval Flow</div>
             <div class="card-body small">
                 <ol class="mb-0 pl-3">
-                    <li>Section Incharge creates Late IN / Early Out</li>
-                    <li>Time Office → N-1 → HOD</li>
-                    <li>Security closes at gate (IN / OUT)</li>
+                    <li>N-1 creates the Late IN / Early Out application</li>
+                    <li>HOD approves (per department)</li>
+                    <li>Security closes at gate with a remark (IN / OUT)</li>
                 </ol>
+                <p class="text-muted mt-2 mb-0">HOD, N-1 and Security assignments need the HR department HOD's approval before they take effect.</p>
             </div>
         </div>
     </div>

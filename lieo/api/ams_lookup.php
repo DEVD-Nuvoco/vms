@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
-lieo_require_role(['admin', 'timeoffice', 'section_incharge']);
+lieo_require_role(['admin', 'timeoffice']);
 
 header('Content-Type: application/json; charset=utf-8');
 

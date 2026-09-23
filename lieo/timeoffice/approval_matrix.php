@@ -1,8 +1,6 @@
 <?php
+/** Approval Matrix maintenance moved to Admin — Time Office is view-only now. */
 require_once __DIR__ . '/../config.php';
 lieo_require_role(['timeoffice']);
-define('LIEO_MATRIX_PAGE', 1);
-global $LIEO_TO_MATRIX_STEPS;
-$lieoMatrixStepKeys = $LIEO_TO_MATRIX_STEPS;
-$lieoMatrixLockPlant = true;
-require __DIR__ . '/../admin/approval_matrix.php';
+header('Location: ' . lieo_nav_url('timeoffice', 'applications.php'));
+exit;

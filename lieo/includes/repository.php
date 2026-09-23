@@ -271,7 +271,19 @@ function lieo_provision_matrix_user(
     $existing = lieo_find_user_by_email($empEmail);
     if ($existing) {
         if ($existing['role'] !== $role) {
-            return ['ok' => false, 'message' => 'Email already used for role ' . lieo_role_label($existing['role']) . '.'];
+            // N-1 and Security are allowed to be the same person (N-1 creates
+            // the application, Security closes it at the gate) — the login
+            // keeps its original primary role and profile untouched; the
+            // matrix row already saved by the caller grants the other
+            // capability (see lieo_user_secondary_role(), checked at login).
+            $crossRolePair = ['n1', 'security'];
+            if (!in_array($existing['role'], $crossRolePair, true) || !in_array($role, $crossRolePair, true)) {
+                return ['ok' => false, 'message' => 'Email already used for role ' . lieo_role_label($existing['role']) . '.'];
+            }
+            if ($sendCredentials) {
+                lieo_send_role_assigned_email($empEmail, $empName, $role, $plant, $department);
+            }
+            return ['ok' => true, 'provisioned' => 'updated', 'email' => $empEmail];
         }
         $uid = (int) $existing['lieo_user_id'];
         $stmt = lieo_db()->prepare(
@@ -649,7 +661,50 @@ function lieo_list_matrix(): array
 }
 
 /**
- * Resend LIEO credentials email for a matrix assignment.
+ * Resend LIEO credentials email for a user, by lieo_user_id directly.
+ * Only allowed while the user has not changed their first password yet.
+ */
+function lieo_resend_user_credentials(int $userId): array
+{
+    $user = lieo_get_user($userId);
+    if (!$user) {
+        return ['ok' => false, 'message' => 'User not found.'];
+    }
+    $email = trim($user['email'] ?? '');
+    $name = trim($user['full_name'] ?? '');
+    if ($email === '') {
+        return ['ok' => false, 'message' => 'No email on this account.'];
+    }
+    if (($user['status'] ?? '') !== 'Active') {
+        return ['ok' => false, 'message' => 'LIEO account is inactive.'];
+    }
+    if (($user['must_change_password'] ?? 'f') !== 't') {
+        return ['ok' => false, 'message' => 'Password already changed — credentials cannot be resent.'];
+    }
+
+    $pass = lieo_generate_password();
+    if (!lieo_set_password($userId, $pass, false)) {
+        return ['ok' => false, 'message' => 'Could not reset temporary password.'];
+    }
+    $db = lieo_db();
+    $must = $db->prepare("UPDATE tbl_lieo_user SET must_change_password = 't' WHERE lieo_user_id = ?");
+    $must->bind_param('i', $userId);
+    $must->execute();
+    $must->close();
+
+    lieo_send_credentials_email($email, $name !== '' ? $name : $email, $pass, true, (string) ($user['role'] ?? ''));
+    return [
+        'ok' => true,
+        'message' => 'Credentials resent to ' . $email . ' (password: ' . $pass . ').',
+        'password' => $pass,
+        'email' => $email,
+    ];
+}
+
+/**
+ * Resend LIEO credentials email for a matrix assignment (thin wrapper over
+ * lieo_resend_user_credentials() — kept for the existing Approval Matrix UI
+ * call site, which only has a matrix_id, not the linked lieo_user_id).
  * Only allowed while the linked user has not changed their first password yet.
  */
 function lieo_resend_matrix_credentials(int $matrixId): array
@@ -657,7 +712,7 @@ function lieo_resend_matrix_credentials(int $matrixId): array
     lieo_ensure_lieo_auth_schema();
     $db = lieo_db();
     $stmt = $db->prepare(
-        "SELECT m.*, u.lieo_user_id, u.must_change_password, u.status AS user_status
+        "SELECT m.*, u.lieo_user_id
          FROM tbl_lieo_approval_matrix m
          LEFT JOIN tbl_lieo_user u ON u.email = m.emp_email
          WHERE m.matrix_id = ? AND m.status = 'Active'
@@ -671,41 +726,52 @@ function lieo_resend_matrix_credentials(int $matrixId): array
     if (!$row) {
         return ['ok' => false, 'message' => 'Assignment not found.'];
     }
-    $email = trim($row['emp_email'] ?? '');
-    $name = trim($row['emp_name'] ?? '');
-    if ($email === '') {
-        return ['ok' => false, 'message' => 'No email on this assignment.'];
-    }
     if (empty($row['lieo_user_id'])) {
         return ['ok' => false, 'message' => 'No LIEO login linked. Save the assignment again to create login.'];
     }
-    if (($row['user_status'] ?? '') !== 'Active') {
-        return ['ok' => false, 'message' => 'LIEO account is inactive.'];
-    }
-    if (($row['must_change_password'] ?? 'f') !== 't') {
-        return ['ok' => false, 'message' => 'Password already changed — credentials cannot be resent.'];
-    }
-
-    $uid = (int) $row['lieo_user_id'];
-    $pass = lieo_generate_password();
-    if (!lieo_set_password($uid, $pass, false)) {
-        return ['ok' => false, 'message' => 'Could not reset temporary password.'];
-    }
-    $must = $db->prepare("UPDATE tbl_lieo_user SET must_change_password = 't' WHERE lieo_user_id = ?");
-    $must->bind_param('i', $uid);
-    $must->execute();
-    $must->close();
-
-    lieo_send_credentials_email($email, $name !== '' ? $name : $email, $pass, true, (string) ($row['approval_step'] ?? ''));
-    return [
-        'ok' => true,
-        'message' => 'Credentials resent to ' . $email . ' (password: ' . $pass . ').',
-        'password' => $pass,
-        'email' => $email,
-    ];
+    return lieo_resend_user_credentials((int) $row['lieo_user_id']);
 }
 
-function lieo_save_matrix_rule(array $data, ?int $id = null): array
+/** Single-assignee steps: at most one active row per (plant, department). 'n1' is exempt (multiple allowed). */
+function lieo_matrix_single_assignee_steps(): array
+{
+    return ['timeoffice', 'hod', 'security'];
+}
+
+/**
+ * True if an active row already exists for this (plant, department, step)
+ * slot, assigned to someone OTHER than $empCode. Only meaningful for
+ * single-assignee steps — the widened unique key no longer blocks this by
+ * itself once 'n1' needs multiple rows per slot.
+ */
+function lieo_matrix_slot_taken_by_other(string $plant, string $dept, string $step, string $empCode, ?int $excludeMatrixId = null): ?array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    $dept = lieo_matrix_needs_department($step) ? trim($dept) : 'All';
+    $canon = lieo_sql_canonical_plant('plant');
+    $sql = "SELECT * FROM tbl_lieo_approval_matrix
+            WHERE $canon = ? AND department = ? AND approval_step = ? AND status = 'Active' AND emp_code <> ?";
+    if ($excludeMatrixId) {
+        $sql .= ' AND matrix_id <> ' . (int) $excludeMatrixId;
+    }
+    $sql .= ' LIMIT 1';
+    $stmt = lieo_db()->prepare($sql);
+    if (!$stmt) {
+        return null;
+    }
+    $stmt->bind_param('ssss', $plant, $dept, $step, $empCode);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
+/**
+ * Core insert/update of an approval-matrix row + login provisioning, shared by
+ * the (admin, still-live-save) matrix page and lieo_decide_user_request()'s
+ * approval path — so provisioning logic isn't duplicated between them.
+ */
+function lieo_apply_matrix_rule(array $data, ?int $id, int $actorUserId): array
 {
     try {
         lieo_ensure_lieo_auth_schema();
@@ -716,20 +782,8 @@ function lieo_save_matrix_rule(array $data, ?int $id = null): array
         $empCode = trim($data['emp_code'] ?? '');
         $empName = trim($data['emp_name'] ?? '');
         $empEmail = trim($data['emp_email'] ?? '');
-        $actorRole = $_SESSION['lieo_role'] ?? '';
-        global $LIEO_ADMIN_MATRIX_STEPS, $LIEO_TO_MATRIX_STEPS;
-        if ($actorRole === 'admin') {
-            $allowed = $LIEO_ADMIN_MATRIX_STEPS;
-        } elseif ($actorRole === 'timeoffice') {
-            $allowed = $LIEO_TO_MATRIX_STEPS;
-            $sessionPlant = lieo_ams_canonical_plant($_SESSION['lieo_plant'] ?? '');
-            if ($sessionPlant !== '') {
-                $plant = $sessionPlant;
-            }
-        } else {
-            return ['ok' => false, 'message' => 'You cannot maintain the approval matrix.'];
-        }
-        if (!in_array($step, $allowed, true) || $plant === '' || $empCode === '' || $empName === '') {
+
+        if (!in_array($step, ['timeoffice', 'n1', 'hod', 'security'], true) || $plant === '' || $empCode === '' || $empName === '') {
             return ['ok' => false, 'message' => 'Plant, role and employee are required.'];
         }
         if (lieo_matrix_needs_department($step) && $dept === '') {
@@ -741,7 +795,23 @@ function lieo_save_matrix_rule(array $data, ?int $id = null): array
         if ($empEmail === '') {
             return ['ok' => false, 'message' => 'Employee business email is required (used as login ID).'];
         }
-        $createdBy = (int) ($_SESSION['lieo_user_id'] ?? 0);
+        if ($step === 'timeoffice' || $step === 'security') {
+            if (!lieo_ams_department_is_hr($plant, $empEmail)) {
+                return ['ok' => false, 'message' => lieo_role_label($step) . ' must be an HR department employee.'];
+            }
+        }
+        if (in_array($step, lieo_matrix_single_assignee_steps(), true)) {
+            $conflict = lieo_matrix_slot_taken_by_other($plant, $dept, $step, $empCode, $id);
+            if ($conflict) {
+                return [
+                    'ok' => false,
+                    'code' => 'slot_taken',
+                    'message' => ($dept === 'All' ? $plant : $dept) . ' already has an active ' . lieo_role_label($step)
+                        . ' (' . $conflict['emp_name'] . '). Use "Replace" to transfer instead of adding a new one.',
+                    'existing_matrix_id' => (int) $conflict['matrix_id'],
+                ];
+            }
+        }
 
         if ($id) {
             $stmt = $db->prepare(
@@ -758,7 +828,7 @@ function lieo_save_matrix_rule(array $data, ?int $id = null): array
                  ON DUPLICATE KEY UPDATE emp_code=VALUES(emp_code), emp_name=VALUES(emp_name),
                    emp_email=VALUES(emp_email), status='Active', updated_at=NOW()"
             );
-            $stmt->bind_param('ssssssi', $plant, $dept, $step, $empCode, $empName, $empEmail, $createdBy);
+            $stmt->bind_param('ssssssi', $plant, $dept, $step, $empCode, $empName, $empEmail, $actorUserId);
         }
         $ok = $stmt->execute();
         $newId = $id ?: (int) $stmt->insert_id;
@@ -798,9 +868,30 @@ function lieo_save_matrix_rule(array $data, ?int $id = null): array
 
         return ['ok' => true, 'matrix_id' => $newId, 'message' => $msg];
     } catch (Throwable $e) {
-        error_log('lieo_save_matrix_rule: ' . $e->getMessage());
+        error_log('lieo_apply_matrix_rule: ' . $e->getMessage());
         return ['ok' => false, 'message' => 'Save failed: ' . $e->getMessage()];
     }
+}
+
+/**
+ * Admin-only matrix save (Time Office no longer maintains the matrix — it's
+ * view-only per the redesign). Still a direct/live save; routing this through
+ * the HR-department-HOD user-request approval gate is a separate step
+ * (see lieo_submit_user_request()) layered on top by the admin UI.
+ */
+function lieo_save_matrix_rule(array $data, ?int $id = null): array
+{
+    global $LIEO_ADMIN_MATRIX_STEPS;
+    $actorRole = $_SESSION['lieo_role'] ?? '';
+    if ($actorRole !== 'admin') {
+        return ['ok' => false, 'message' => 'You cannot maintain the approval matrix.'];
+    }
+    $step = $data['approval_step'] ?? '';
+    if (!in_array($step, $LIEO_ADMIN_MATRIX_STEPS, true)) {
+        return ['ok' => false, 'message' => 'Plant, role and employee are required.'];
+    }
+    $actorUserId = (int) ($_SESSION['lieo_user_id'] ?? 0);
+    return lieo_apply_matrix_rule($data, $id, $actorUserId);
 }
 
 function lieo_delete_matrix_rule(int $id): bool
@@ -847,6 +938,359 @@ function lieo_list_matrix_by_plant(): array
     return $grouped;
 }
 
+/** All LIEO login accounts for a plant (for HR-department HOD's "see all users of plant" tab). */
+function lieo_list_users_for_plant(string $plant): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return [];
+    }
+    $canon = lieo_sql_canonical_plant('plant');
+    $stmt = lieo_db()->prepare(
+        "SELECT * FROM tbl_lieo_user WHERE $canon = ? ORDER BY role, full_name"
+    );
+    if (!$stmt) {
+        return [];
+    }
+    $stmt->bind_param('s', $plant);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return $rows;
+}
+
+/**
+ * Replace the HOD on an existing matrix row with a new person, logging the
+ * change (tbl_lieo_hod_transfer_log) and provisioning the new person's login.
+ * The old HOD's own login is only deactivated if they hold no other active
+ * matrix rows (they may still be HOD/N-1/etc elsewhere). Updating the matrix
+ * row in place (not deleting + re-inserting) is what makes any application
+ * currently Pending_hod for this department immediately actionable by the new
+ * HOD with zero data loss — lieo_advance_application() re-resolves the
+ * approver live from this table on every action, it never caches it.
+ */
+function lieo_transfer_hod(int $matrixId, array $newEmp, int $actorUserId): array
+{
+    $db = lieo_db();
+    $stmt = $db->prepare("SELECT * FROM tbl_lieo_approval_matrix WHERE matrix_id = ? AND status = 'Active' LIMIT 1");
+    $stmt->bind_param('i', $matrixId);
+    $stmt->execute();
+    $old = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$old) {
+        return ['ok' => false, 'message' => 'HOD assignment not found.'];
+    }
+    if (($old['approval_step'] ?? '') !== 'hod') {
+        return ['ok' => false, 'message' => 'This action is only for HOD assignments.'];
+    }
+
+    $newCode = trim((string) ($newEmp['emp_code'] ?? ''));
+    $newName = trim((string) ($newEmp['emp_name'] ?? ''));
+    $newEmail = trim((string) ($newEmp['emp_email'] ?? ''));
+    if ($newCode === '' || $newName === '' || $newEmail === '') {
+        return ['ok' => false, 'message' => 'New HOD employee code, name and email are required.'];
+    }
+
+    $apply = lieo_apply_matrix_rule([
+        'plant' => $old['plant'],
+        'department' => $old['department'],
+        'approval_step' => 'hod',
+        'emp_code' => $newCode,
+        'emp_name' => $newName,
+        'emp_email' => $newEmail,
+    ], $matrixId, $actorUserId);
+    if (!$apply['ok']) {
+        return $apply;
+    }
+
+    $stmt = $db->prepare(
+        "INSERT INTO tbl_lieo_hod_transfer_log
+         (matrix_id, plant, department, old_emp_code, old_emp_name, old_emp_email, new_emp_code, new_emp_name, new_emp_email, transferred_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?)"
+    );
+    $stmt->bind_param(
+        'issssssssi',
+        $matrixId,
+        $old['plant'],
+        $old['department'],
+        $old['emp_code'],
+        $old['emp_name'],
+        $old['emp_email'],
+        $newCode,
+        $newName,
+        $newEmail,
+        $actorUserId
+    );
+    $stmt->execute();
+    $stmt->close();
+
+    // Deactivate the outgoing HOD's login only if they hold no other active
+    // matrix row anywhere (still HOD of another department, or another role).
+    $oldUser = lieo_find_user_by_email((string) $old['emp_email']);
+    if ($oldUser) {
+        $check = $db->prepare("SELECT COUNT(*) c FROM tbl_lieo_approval_matrix WHERE emp_code = ? AND status = 'Active'");
+        $check->bind_param('s', $old['emp_code']);
+        $check->execute();
+        $remaining = (int) ($check->get_result()->fetch_assoc()['c'] ?? 0);
+        $check->close();
+        if ($remaining === 0) {
+            lieo_set_user_status((int) $oldUser['lieo_user_id'], 'Inactive');
+        }
+    }
+
+    return ['ok' => true, 'message' => 'HOD transferred to ' . $newName . '.'];
+}
+
+// ---------------------------------------------------------------------------
+// User requests (Admin create/update/delete of HOD/N-1/Security/Time Office
+// assignments, pending the HR-department HOD's approval)
+// ---------------------------------------------------------------------------
+
+function lieo_submit_user_request(array $data): array
+{
+    $plant = lieo_ams_canonical_plant($data['plant'] ?? '');
+    $step = $data['approval_step'] ?? '';
+    $dept = lieo_matrix_needs_department($step) ? trim($data['department'] ?? '') : 'All';
+    $empCode = trim($data['emp_code'] ?? '');
+    $empName = trim($data['emp_name'] ?? '');
+    $empEmail = trim($data['emp_email'] ?? '');
+    $type = in_array($data['request_type'] ?? '', ['create', 'update', 'delete'], true) ? $data['request_type'] : 'create';
+    $targetMatrixId = !empty($data['target_matrix_id']) ? (int) $data['target_matrix_id'] : null;
+
+    if (!in_array($step, ['timeoffice', 'n1', 'hod', 'security'], true) || $plant === '' || $empCode === '' || $empName === '' || $empEmail === '') {
+        return ['ok' => false, 'message' => 'Plant, role and employee are required.'];
+    }
+    if (lieo_matrix_needs_department($step) && $dept === '') {
+        return ['ok' => false, 'message' => 'Department is required for this role.'];
+    }
+    if (($step === 'timeoffice' || $step === 'security') && !lieo_ams_department_is_hr($plant, $empEmail)) {
+        return ['ok' => false, 'message' => lieo_role_label($step) . ' must be an HR department employee.'];
+    }
+
+    // Editing a row and saving it with the same plant/department/role/employee
+    // it already has isn't a change — don't queue a no-op HR-HOD approval.
+    // Department is only compared for roles that use one — Time Office/Security
+    // are always forced to 'All' above regardless of what's on the row (some
+    // legacy rows still have a real department name stored), so a stale
+    // department there must never make an otherwise-identical row look changed.
+    if ($type === 'update' && $targetMatrixId) {
+        $current = lieo_get_matrix_row($targetMatrixId);
+        $deptUnchanged = !lieo_matrix_needs_department($step)
+            || lieo_dept_names_equal((string) ($current['department'] ?? ''), $dept);
+        if ($current
+            && lieo_ams_canonical_plant((string) $current['plant']) === $plant
+            && $deptUnchanged
+            && (string) $current['approval_step'] === $step
+            && strcasecmp((string) $current['emp_code'], $empCode) === 0
+            && strcasecmp((string) $current['emp_email'], $empEmail) === 0
+        ) {
+            return ['ok' => true, 'message' => 'No changes to submit — this assignment is already set that way.'];
+        }
+    }
+
+    $requestedBy = (int) ($_SESSION['lieo_user_id'] ?? 0);
+    $stmt = lieo_db()->prepare(
+        "INSERT INTO tbl_lieo_user_request
+         (request_type, plant, department, approval_step, emp_code, emp_name, emp_email, target_matrix_id, status, requested_by)
+         VALUES (?,?,?,?,?,?,?,?,'Pending',?)"
+    );
+    if (!$stmt) {
+        return ['ok' => false, 'message' => 'Prepare failed: ' . lieo_db()->error];
+    }
+    $stmt->bind_param('sssssssii', $type, $plant, $dept, $step, $empCode, $empName, $empEmail, $targetMatrixId, $requestedBy);
+    $ok = $stmt->execute();
+    $newId = (int) $stmt->insert_id;
+    $err = $stmt->error;
+    $stmt->close();
+    if (!$ok) {
+        return ['ok' => false, 'message' => $err ?: 'Could not submit request.'];
+    }
+
+    $request = lieo_get_user_request($newId);
+    if ($request) {
+        lieo_notify_user_request_submitted($request);
+    }
+
+    $message = 'Request submitted for HR department HOD approval.';
+    $hrDept = lieo_hr_department_name($plant);
+    $approver = $hrDept !== null ? lieo_matrix_notify_recipient($plant, $hrDept, 'hod') : null;
+    if ($approver) {
+        $message = 'Request submitted for HR department HOD approval (' . $approver['name'] . ' – ' . $approver['email'] . ').';
+    }
+
+    return ['ok' => true, 'request_id' => $newId, 'message' => $message];
+}
+
+function lieo_get_user_request(int $requestId): ?array
+{
+    $stmt = lieo_db()->prepare("SELECT * FROM tbl_lieo_user_request WHERE request_id = ?");
+    $stmt->bind_param('i', $requestId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
+/** @return list<array<string,mixed>> */
+function lieo_list_user_requests(string $plant, string $status = 'Pending'): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return [];
+    }
+    $canon = lieo_sql_canonical_plant('plant');
+    $sql = "SELECT * FROM tbl_lieo_user_request WHERE $canon = ?";
+    $types = 's';
+    $params = [$plant];
+    if ($status !== '') {
+        $sql .= ' AND status = ?';
+        $types .= 's';
+        $params[] = $status;
+    }
+    $sql .= ' ORDER BY created_at DESC';
+    $stmt = lieo_db()->prepare($sql);
+    if (!$stmt) {
+        return [];
+    }
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return $rows;
+}
+
+function lieo_get_matrix_row(int $matrixId): ?array
+{
+    $stmt = lieo_db()->prepare("SELECT * FROM tbl_lieo_approval_matrix WHERE matrix_id = ? LIMIT 1");
+    $stmt->bind_param('i', $matrixId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
+/**
+ * Pending update/delete requests indexed by the existing matrix row they
+ * target, so a matrix listing can flag "this row has a request queued"
+ * without one query per row.
+ * @return array<int,array<string,mixed>>
+ */
+function lieo_list_pending_target_requests(): array
+{
+    $rows = lieo_db()->query(
+        "SELECT * FROM tbl_lieo_user_request WHERE status = 'Pending' AND target_matrix_id IS NOT NULL"
+    )->fetch_all(MYSQLI_ASSOC);
+    $byTarget = [];
+    foreach ($rows as $r) {
+        $byTarget[(int) $r['target_matrix_id']] = $r;
+    }
+    return $byTarget;
+}
+
+function lieo_decide_user_request(int $requestId, string $decision, int $hrHodUserId, string $remark): array
+{
+    if (!in_array($decision, ['Approved', 'Rejected'], true)) {
+        return ['ok' => false, 'message' => 'Invalid decision.'];
+    }
+    $request = lieo_get_user_request($requestId);
+    if (!$request || ($request['status'] ?? '') !== 'Pending') {
+        return ['ok' => false, 'message' => 'Request not found or already decided.'];
+    }
+
+    if ($decision === 'Approved') {
+        $targetId = !empty($request['target_matrix_id']) ? (int) $request['target_matrix_id'] : null;
+        $type = $request['request_type'] ?? 'create';
+        if ($type === 'delete') {
+            if (!$targetId || !lieo_delete_matrix_rule($targetId)) {
+                return ['ok' => false, 'message' => 'Could not delete the assignment.'];
+            }
+        } elseif ($type === 'update' && $targetId && ($request['approval_step'] ?? '') === 'hod') {
+            // Replacing an existing HOD — go through lieo_transfer_hod() so the
+            // change is logged to tbl_lieo_hod_transfer_log, not just applied.
+            $transfer = lieo_transfer_hod($targetId, [
+                'emp_code' => $request['emp_code'],
+                'emp_name' => $request['emp_name'],
+                'emp_email' => $request['emp_email'],
+            ], $hrHodUserId);
+            if (!$transfer['ok']) {
+                return $transfer;
+            }
+        } else {
+            $apply = lieo_apply_matrix_rule([
+                'plant' => $request['plant'],
+                'department' => $request['department'],
+                'approval_step' => $request['approval_step'],
+                'emp_code' => $request['emp_code'],
+                'emp_name' => $request['emp_name'],
+                'emp_email' => $request['emp_email'],
+            ], $targetId, $hrHodUserId);
+            if (!$apply['ok']) {
+                return $apply;
+            }
+        }
+    }
+
+    $stmt = lieo_db()->prepare(
+        "UPDATE tbl_lieo_user_request SET status=?, decided_by=?, decision_remark=?, decided_at=NOW() WHERE request_id=?"
+    );
+    $stmt->bind_param('sisi', $decision, $hrHodUserId, $remark, $requestId);
+    $ok = $stmt->execute();
+    $stmt->close();
+    if (!$ok) {
+        return ['ok' => false, 'message' => 'Could not record decision.'];
+    }
+
+    $request['status'] = $decision;
+    lieo_notify_user_request_decided($request, $decision);
+    return ['ok' => true, 'message' => 'Request ' . strtolower($decision) . '.'];
+}
+
+/**
+ * Whether this email also holds an active matrix assignment for the other
+ * role of the N-1/Security pair — the one combination where a single person
+ * is allowed both roles (N-1 creates the application, Security closes it at
+ * the gate). Used at login to grant the second capability without a second
+ * login row (tbl_lieo_user has one role column and a unique email).
+ */
+function lieo_user_secondary_role(string $primaryRole, string $email): ?string
+{
+    $pairOther = ['n1' => 'security', 'security' => 'n1'][$primaryRole] ?? null;
+    $email = trim($email);
+    if ($pairOther === null || $email === '') {
+        return null;
+    }
+    $stmt = lieo_db()->prepare(
+        "SELECT 1 FROM tbl_lieo_approval_matrix WHERE emp_email = ? AND approval_step = ? AND status = 'Active' LIMIT 1"
+    );
+    $stmt->bind_param('ss', $email, $pairOther);
+    $stmt->execute();
+    $has = (bool) $stmt->get_result()->fetch_row();
+    $stmt->close();
+    return $has ? $pairOther : null;
+}
+
+/**
+ * The logged-in N-1's department, for scoping application creation/listing.
+ * Normally just $_SESSION['lieo_department'], but a person whose login was
+ * first provisioned as Security has 'All' stored there (Security is plant-
+ * only) even after also being granted N-1 — fall back to the matrix, which
+ * always has the real department.
+ */
+function lieo_session_n1_department(): string
+{
+    $dept = trim($_SESSION['lieo_department'] ?? '');
+    if ($dept !== '' && $dept !== 'All') {
+        return $dept;
+    }
+    $plant = lieo_ams_canonical_plant($_SESSION['lieo_plant'] ?? '');
+    $empCode = trim($_SESSION['lieo_emp_code'] ?? '');
+    if ($plant === '' || $empCode === '') {
+        return $dept;
+    }
+    $depts = lieo_list_matrix_departments_for_user($empCode, $plant, 'n1');
+    return $depts[0] ?? $dept;
+}
+
 function lieo_apply_session_plant_scope(array $filters): array
 {
     $role = $_SESSION['lieo_role'] ?? '';
@@ -854,14 +1298,87 @@ function lieo_apply_session_plant_scope(array $filters): array
         return $filters;
     }
     $plant = lieo_ams_canonical_plant($_SESSION['lieo_plant'] ?? '');
-    if ($plant !== '' && in_array($role, ['section_incharge', 'timeoffice', 'security', 'n1', 'hod', 'hr'], true)) {
+    if ($plant !== '' && in_array($role, ['timeoffice', 'security', 'n1', 'hod'], true)) {
         $filters['plant'] = $plant;
     }
-    $dept = trim($_SESSION['lieo_department'] ?? '');
-    if ($dept !== '' && $dept !== 'All' && in_array($role, ['section_incharge', 'timeoffice', 'n1'], true)) {
-        $filters['department'] = $dept;
+    if ($role === 'hod') {
+        // HOD is per-department (possibly several) — authority lives in the
+        // matrix, not $_SESSION['lieo_department'], which only ever holds one
+        // value and would silently hide a second department's applications.
+        $empCode = trim($_SESSION['lieo_emp_code'] ?? '');
+        if ($empCode !== '' && $plant !== '') {
+            $filters['department_in'] = lieo_list_matrix_departments_for_user($empCode, $plant, 'hod');
+        }
+    } elseif ($role === 'n1' || ($_SESSION['lieo_secondary_role'] ?? null) === 'n1') {
+        $dept = lieo_session_n1_department();
+        if ($dept !== '' && $dept !== 'All') {
+            $filters['department'] = $dept;
+        }
     }
     return $filters;
+}
+
+/**
+ * Distinct active departments a person holds for a given plant/step —
+ * e.g. all departments a HOD is currently assigned to (may be >1).
+ * @return list<string>
+ */
+function lieo_list_matrix_departments_for_user(string $empCode, string $plant, string $step): array
+{
+    $empCode = trim($empCode);
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($empCode === '' || $plant === '') {
+        return [];
+    }
+    $canon = lieo_sql_canonical_plant('plant');
+    $stmt = lieo_db()->prepare(
+        "SELECT DISTINCT department FROM tbl_lieo_approval_matrix
+         WHERE $canon = ? AND approval_step = ? AND emp_code = ? AND status = 'Active'
+         ORDER BY department"
+    );
+    if (!$stmt) {
+        return [];
+    }
+    $stmt->bind_param('sss', $plant, $step, $empCode);
+    $stmt->execute();
+    $out = [];
+    $res = $stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+        $d = trim((string) ($row['department'] ?? ''));
+        if ($d !== '') {
+            $out[] = $d;
+        }
+    }
+    $stmt->close();
+    return $out;
+}
+
+/**
+ * Whether $empCode is the active assignee for (plant, department, step).
+ * Unlike lieo_get_matrix_approver() (LIMIT 1, wrong for multi-assignee steps
+ * like n1), this checks a specific person and works for any step.
+ */
+function lieo_is_active_matrix_assignee(string $plant, string $dept, string $step, string $empCode): bool
+{
+    $empCode = trim($empCode);
+    $plant = lieo_ams_canonical_plant($plant);
+    $dept = lieo_matrix_needs_department($step) ? trim($dept) : 'All';
+    if ($empCode === '' || $plant === '' || $dept === '') {
+        return false;
+    }
+    $canon = lieo_sql_canonical_plant('plant');
+    $stmt = lieo_db()->prepare(
+        "SELECT 1 FROM tbl_lieo_approval_matrix
+         WHERE $canon = ? AND department = ? AND approval_step = ? AND emp_code = ? AND status = 'Active' LIMIT 1"
+    );
+    if (!$stmt) {
+        return false;
+    }
+    $stmt->bind_param('ssss', $plant, $dept, $step, $empCode);
+    $stmt->execute();
+    $ok = (bool) $stmt->get_result()->fetch_row();
+    $stmt->close();
+    return $ok;
 }
 
 /**
@@ -1175,7 +1692,89 @@ function lieo_dept_names_equal(string $a, string $b): bool
     return strcasecmp(lieo_normalize_dept_name($a), lieo_normalize_dept_name($b)) === 0;
 }
 
-function lieo_save_plant_department(string $plant, string $name, ?int $id = null): array
+/**
+ * The plant's designated HR department name (is_hr='t'), or null if none set
+ * yet. This is the single source of truth for "is this the HR department" —
+ * see lieo_hod_workflow_redesign.sql's is_hr column comment for why name
+ * matching (e.g. against a hardcoded 'HR' string) isn't used instead.
+ */
+function lieo_hr_department_name(string $plant): ?string
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return null;
+    }
+    $stmt = lieo_db()->prepare(
+        "SELECT department_name FROM tbl_lieo_plant_department WHERE plant = ? AND is_hr = 't' AND status = 'Active' LIMIT 1"
+    );
+    if (!$stmt) {
+        return null;
+    }
+    $stmt->bind_param('s', $plant);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ? trim((string) $row['department_name']) : null;
+}
+
+/**
+ * Whether a HOD holds the plant's flagged HR department among their active
+ * HOD assignments — this is what unlocks the "User Approval" / plant-users
+ * sidebar tabs, not a name comparison.
+ */
+function lieo_is_hr_hod(string $empCode, string $plant): bool
+{
+    $hrDept = lieo_hr_department_name($plant);
+    if ($hrDept === null) {
+        return false;
+    }
+    foreach (lieo_list_matrix_departments_for_user($empCode, $plant, 'hod') as $dept) {
+        if (lieo_dept_names_equal($dept, $hrDept)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Whether an AMS employee's own (coarse) AMS Department resolves to the
+ * plant's HR department — used to gate Time Office/Security assignment to HR
+ * department people only. AMS's coarse "Department" field uses a different,
+ * broader vocabulary than the LIEO department master (AMS says "Human
+ * Resources" for everyone from HR/Security/Medical/..., LIEO's master has a
+ * granular 'HR' row) — they don't string-match each other, so this compares
+ * against the is_hr row's separately recorded ams_department_name, not its
+ * department_name.
+ */
+function lieo_ams_department_is_hr(string $plant, string $empEmail): bool
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return false;
+    }
+    $stmt = lieo_db()->prepare(
+        "SELECT ams_department_name FROM tbl_lieo_plant_department WHERE plant = ? AND is_hr = 't' AND status = 'Active' LIMIT 1"
+    );
+    if (!$stmt) {
+        return false;
+    }
+    $stmt->bind_param('s', $plant);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $amsHrDept = trim((string) ($row['ams_department_name'] ?? ''));
+    if ($amsHrDept === '') {
+        return false;
+    }
+    foreach (lieo_list_ams_emails_for_plant($plant) as $r) {
+        if (strcasecmp($r['email'], trim($empEmail)) === 0) {
+            return lieo_dept_names_equal((string) $r['department'], $amsHrDept);
+        }
+    }
+    return false;
+}
+
+function lieo_save_plant_department(string $plant, string $name, ?int $id = null, bool $isHr = false, string $amsDeptName = ''): array
 {
     $plant = lieo_ams_canonical_plant($plant);
     $name = lieo_normalize_dept_name($name);
@@ -1183,14 +1782,24 @@ function lieo_save_plant_department(string $plant, string $name, ?int $id = null
         return ['ok' => false, 'message' => 'Plant and department name are required.'];
     }
 
+    $amsDeptName = trim($amsDeptName);
+    if ($isHr && $amsDeptName !== '' && !in_array($amsDeptName, lieo_list_ams_departments($plant), true)) {
+        return ['ok' => false, 'message' => 'Selected AMS department is not valid for this plant.'];
+    }
+
     // Strict AMS check: "Sales " / "sales" must match existing AMS "Sales".
-    foreach (lieo_list_ams_departments($plant) as $amsDept) {
-        if (lieo_dept_names_equal($name, (string) $amsDept)) {
-            return [
-                'ok' => false,
-                'code' => 'ams_duplicate',
-                'message' => 'Department already mentioned in the AMS portal',
-            ];
+    // Exception: marking the HR row *as* its own matching AMS department (e.g.
+    // name "Human Resources" mapped to AMS "Human Resources") is the normal
+    // case, not an accidental duplicate — only block it when isHr is false.
+    if (!$isHr) {
+        foreach (lieo_list_ams_departments($plant) as $amsDept) {
+            if (lieo_dept_names_equal($name, (string) $amsDept)) {
+                return [
+                    'ok' => false,
+                    'code' => 'ams_duplicate',
+                    'message' => 'Department already mentioned in the AMS portal',
+                ];
+            }
         }
     }
 
@@ -1210,17 +1819,30 @@ function lieo_save_plant_department(string $plant, string $name, ?int $id = null
 
     $db = lieo_db();
     $by = (int) ($_SESSION['lieo_user_id'] ?? 0);
+    $isHrVal = $isHr ? 't' : 'f';
+
+    // Only one department per plant may be flagged HR — unset any other first.
+    if ($isHr) {
+        $unset = $db->prepare("UPDATE tbl_lieo_plant_department SET is_hr='f' WHERE plant=? AND dept_id<>?");
+        $excludeId = $id ?? 0;
+        $unset->bind_param('si', $plant, $excludeId);
+        $unset->execute();
+        $unset->close();
+    }
+
+    $amsDeptVal = $isHr ? $amsDeptName : null;
+
     if ($id) {
         $stmt = $db->prepare(
-            "UPDATE tbl_lieo_plant_department SET department_name=?, status='Active' WHERE dept_id=? AND plant=?"
+            "UPDATE tbl_lieo_plant_department SET department_name=?, is_hr=?, ams_department_name=?, status='Active' WHERE dept_id=? AND plant=?"
         );
-        $stmt->bind_param('sis', $name, $id, $plant);
+        $stmt->bind_param('sssis', $name, $isHrVal, $amsDeptVal, $id, $plant);
     } else {
         $stmt = $db->prepare(
-            "INSERT INTO tbl_lieo_plant_department (plant, department_name, status, created_by)
-             VALUES (?,?,'Active',?)"
+            "INSERT INTO tbl_lieo_plant_department (plant, department_name, is_hr, ams_department_name, status, created_by)
+             VALUES (?,?,?,?,'Active',?)"
         );
-        $stmt->bind_param('ssi', $plant, $name, $by);
+        $stmt->bind_param('ssssi', $plant, $name, $isHrVal, $amsDeptVal, $by);
     }
     $ok = $stmt->execute();
     $err = $stmt->error;
@@ -1636,9 +2258,15 @@ function lieo_create_application(array $data): array
     }
     $cName = $contractor['contractor_name'] ?? ($contractor['vendor_name'] ?? '');
 
-    $to = lieo_get_matrix_approver($plant, $department, 'timeoffice');
-    if (!$to) {
-        return ['ok' => false, 'message' => 'No Time Office configured in Approval Matrix for ' . $plant . ' / ' . $department . '.'];
+    // N-1 creates the application directly — must be an active N-1 for this
+    // plant/department, and that department must have a HOD to approve it.
+    $actorCode = trim($data['actor_emp_code'] ?? '');
+    if (!lieo_is_active_matrix_assignee($plant, $department, 'n1', $actorCode)) {
+        return ['ok' => false, 'message' => 'You are not an assigned N-1 for ' . $plant . ' / ' . $department . '.'];
+    }
+    $hod = lieo_get_matrix_approver($plant, $department, 'hod');
+    if (!$hod) {
+        return ['ok' => false, 'message' => $department . ' department HOD is not created please contact to Admin'];
     }
 
     // Optional: keep workman master in sync for reporting (find-or-create by code)
@@ -1676,7 +2304,7 @@ function lieo_create_application(array $data): array
          (application_no, application_type, access_type, workman_id, workman_code, workman_name,
           contractor_id, contractor_name, plant, department, shift, reason, application_date,
           status, current_step, created_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'Pending_timeoffice','timeoffice',?)"
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'Pending_hod','hod',?)"
     );
     $stmt->bind_param(
         'sssississssssi',
@@ -1744,6 +2372,16 @@ function lieo_list_applications(array $filters = []): array
     if (!empty($filters['department'])) {
         $where[] = "department = '" . lieo_esc($filters['department']) . "'";
     }
+    if (!empty($filters['department_in']) && is_array($filters['department_in'])) {
+        $depts = array_filter(array_map('trim', $filters['department_in']), static fn($d) => $d !== '');
+        if ($depts) {
+            $quoted = array_map(static fn($d) => "'" . lieo_esc($d) . "'", $depts);
+            $where[] = 'department IN (' . implode(',', $quoted) . ')';
+        } else {
+            // HOD with no active department assignment sees nothing, not everything.
+            $where[] = '1=0';
+        }
+    }
     if (!empty($filters['created_by'])) {
         $where[] = "created_by = " . (int) $filters['created_by'];
     }
@@ -1758,6 +2396,9 @@ function lieo_list_applications(array $filters = []): array
         $where[] = "application_date <= '" . lieo_esc($filters['date_to']) . "'";
     }
     if (!empty($filters['pending_for_role'])) {
+        // 'hod' is the only step in the current chain; timeoffice/n1 entries are
+        // kept so any pre-redesign application still mid-flight in a legacy
+        // status can still be found/tracked, not silently orphaned.
         $role = $filters['pending_for_role'];
         $map = [
             'timeoffice' => 'Pending_timeoffice',
@@ -1820,6 +2461,9 @@ function lieo_advance_application(int $appId, string $role, string $action, stri
         return $result;
     }
 
+    // Only 'hod' remains in the live chain (N-1 creates, HOD approves, then
+    // gate). 'timeoffice'/'n1' entries stay mapped so a pre-redesign
+    // application still mid-flight in a legacy pending state doesn't break.
     $chain = ['timeoffice' => 'n1', 'n1' => 'hod', 'hod' => null];
     $next = $chain[$role] ?? null;
     if ($next === null) {

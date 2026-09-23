@@ -15,56 +15,61 @@ $lieoAssets = lieo_assets_prefix();
 $lieoRoot = lieo_root_prefix();
 
 $adminNav = [
-    'dashboard' => ['label' => 'Dashboard',         'url' => lieo_nav_url('admin', 'index.php'),           'icon' => 'typcn-chart-area-outline'],
-    'matrix'    => ['label' => 'Time Office Users', 'url' => lieo_nav_url('admin', 'approval_matrix.php'), 'icon' => 'typcn-flow-merge'],
-    'departments'=> ['label' => 'Department Master', 'url' => lieo_nav_url('admin', 'departments.php'),    'icon' => 'typcn-th-large'],
+    'dashboard'  => ['label' => 'Dashboard',         'url' => lieo_nav_url('admin', 'index.php'),              'icon' => 'typcn-chart-area-outline'],
+    'matrix'     => ['label' => 'Approval Matrix',   'url' => lieo_nav_url('admin', 'approval_matrix.php'),    'icon' => 'typcn-flow-merge'],
+    'departments'=> ['label' => 'Department Master', 'url' => lieo_nav_url('admin', 'departments.php'),        'icon' => 'typcn-th-large'],
+    'contractors'=> ['label' => 'Contractor Master', 'url' => lieo_nav_url('admin', 'contractors.php'),        'icon' => 'typcn-briefcase'],
+    'notify'     => ['label' => 'Notification Mail', 'url' => lieo_nav_url('admin', 'notification_mail.php'), 'icon' => 'typcn-mail'],
 ];
 
-$sectionInchargeNav = [
-    'dashboard' => ['label' => 'Dashboard',           'url' => lieo_nav_url('section_incharge', 'index.php'),              'icon' => 'typcn-chart-area-outline'],
-    'create'    => ['label' => 'Create Application',  'url' => lieo_nav_url('section_incharge', 'create_application.php'), 'icon' => 'typcn-document-add'],
-    'list'      => ['label' => 'Application Tracking', 'url' => lieo_nav_url('section_incharge', 'applications.php'),      'icon' => 'typcn-th-list'],
-    'history'   => ['label' => 'My History',          'url' => lieo_nav_url('section_incharge', 'history.php'),            'icon' => 'typcn-time'],
-];
-
+/** Time Office is view-only/tracking now — matrix, departments, contractors and notify moved to Admin. */
 $timeofficeNav = [
     'dashboard'  => ['label' => 'Dashboard',              'url' => lieo_nav_url('timeoffice', 'index.php'),              'icon' => 'typcn-chart-area-outline'],
-    'pending'    => ['label' => 'Pending Approvals',      'url' => lieo_nav_url('timeoffice', 'pending.php'),            'icon' => 'typcn-tick-outline'],
     'list'       => ['label' => 'Application Tracking',   'url' => lieo_nav_url('timeoffice', 'applications.php'),       'icon' => 'typcn-th-list'],
-    'matrix'     => ['label' => 'Approval Matrix',        'url' => lieo_nav_url('timeoffice', 'approval_matrix.php'),    'icon' => 'typcn-flow-merge'],
-    'departments'=> ['label' => 'Department Master',      'url' => lieo_nav_url('timeoffice', 'departments.php'),        'icon' => 'typcn-th-large'],
-    'contractors'=> ['label' => 'Contractor Master',      'url' => lieo_nav_url('timeoffice', 'contractors.php'),        'icon' => 'typcn-briefcase'],
-    'notify'     => ['label' => 'Notification Mail',      'url' => lieo_nav_url('timeoffice', 'notification_mail.php'),  'icon' => 'typcn-mail'],
     'users'      => ['label' => 'Roles',                  'url' => lieo_nav_url('timeoffice', 'users.php'),              'icon' => 'typcn-group-outline'],
     'history'    => ['label' => 'My History',             'url' => lieo_nav_url('timeoffice', 'history.php'),            'icon' => 'typcn-time'],
 ];
 
 $approverNav = [
     'dashboard' => ['label' => 'Dashboard',          'url' => lieo_nav_url($role, 'dashboard.php'), 'icon' => 'typcn-chart-area-outline'],
-    'pending'   => ['label' => 'Pending Approvals',  'url' => lieo_nav_url($role, 'pending.php'),   'icon' => 'typcn-tick-outline'],
-    'list'      => ['label' => 'Application Tracking','url' => lieo_nav_url($role, 'applications.php'), 'icon' => 'typcn-th-list'],
-    'history'   => ['label' => 'My History',         'url' => lieo_nav_url($role, 'history.php'),   'icon' => 'typcn-time'],
 ];
+$secondaryRole = $_SESSION['lieo_secondary_role'] ?? null;
+if ($role === 'n1') {
+    // N-1 only creates now (chain is N-1 creates -> HOD approves) — nothing to approve.
+    $approverNav['create'] = ['label' => 'Create Application', 'url' => lieo_nav_url('n1', 'create_application.php'), 'icon' => 'typcn-document-add'];
+} elseif ($role === 'hod') {
+    $approverNav['pending'] = ['label' => 'Application Approval', 'url' => lieo_nav_url('hod', 'pending.php'), 'icon' => 'typcn-tick-outline'];
+}
+if ($role === 'n1' && $secondaryRole === 'security') {
+    // Also Security for their plant — let them close at the gate too.
+    $approverNav['attendance'] = ['label' => 'Gate Attendance', 'url' => lieo_nav_url('security', 'attendance.php'), 'icon' => 'typcn-arrow-forward-outline'];
+}
+$approverNav['list'] = ['label' => 'Application Tracking', 'url' => lieo_nav_url($role, 'applications.php'), 'icon' => 'typcn-th-list'];
+$approverNav['history'] = ['label' => 'My History', 'url' => lieo_nav_url($role, 'history.php'), 'icon' => 'typcn-time'];
+// HR department HOD picks up the retired HR Head role's job too (contractor
+// reactivation approval), plus admin user-request approval and plant users.
+if ($role === 'hod' && lieo_is_hr_hod((string) ($_SESSION['lieo_emp_code'] ?? ''), lieo_ams_canonical_plant($userPlant))) {
+    $approverNav['user_requests'] = ['label' => 'User Approval', 'url' => lieo_nav_url('hod', 'user_requests.php'), 'icon' => 'typcn-user-add-outline'];
+    $approverNav['plant_users'] = ['label' => 'Plant Users', 'url' => lieo_nav_url('hod', 'plant_users.php'), 'icon' => 'typcn-group-outline'];
+    $approverNav['reactivation'] = ['label' => 'Reactivation Requests', 'url' => lieo_nav_url('hod', 'reactivation.php'), 'icon' => 'typcn-refresh'];
+}
 
 $securityNav = [
     'attendance' => ['label' => 'Gate Attendance', 'url' => lieo_nav_url('security', 'attendance.php'), 'icon' => 'typcn-arrow-forward-outline'],
     'history'    => ['label' => 'My History',      'url' => lieo_nav_url('security', 'history.php'),    'icon' => 'typcn-time'],
 ];
-
-$hrNav = [
-    'reactivation' => ['label' => 'Reactivation Requests', 'url' => lieo_nav_url('hr', 'reactivation.php'), 'icon' => 'typcn-refresh'],
-];
+if ($role === 'security' && $secondaryRole === 'n1') {
+    // Also N-1 for their department — let them create applications too.
+    $securityNav['create'] = ['label' => 'Create Application', 'url' => lieo_nav_url('n1', 'create_application.php'), 'icon' => 'typcn-document-add'];
+    $securityNav['list'] = ['label' => 'Application Tracking', 'url' => lieo_nav_url('n1', 'applications.php'), 'icon' => 'typcn-th-list'];
+}
 
 if ($role === 'admin') {
     $navItems = $adminNav;
-} elseif ($role === 'section_incharge') {
-    $navItems = $sectionInchargeNav;
 } elseif ($role === 'timeoffice') {
     $navItems = $timeofficeNav;
 } elseif ($role === 'security') {
     $navItems = $securityNav;
-} elseif ($role === 'hr') {
-    $navItems = $hrNav;
 } else {
     $navItems = $approverNav;
 }
@@ -160,7 +165,7 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
             min-height: calc(100vh - 64px);
         }
         .lieo-flash {
-            margin-left: 240px;
+            margin: 0 0 0 240px;
             width: calc(100% - 240px);
         }
         @media (max-width: 767.98px) {
@@ -469,7 +474,17 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
             border: none;
             border-radius: 0;
             font-size: .875rem;
-            padding: .65rem 1rem;
+            padding: .65rem 2.5rem .65rem 1rem;
+            position: relative;
+        }
+        .lieo-flash .close {
+            position: absolute;
+            top: 50%;
+            right: 1rem;
+            transform: translateY(-50%);
+            padding: 0;
+            margin: 0;
+            line-height: 1;
         }
         .lieo-flash-success {
             background: #ecfdf3;
@@ -514,7 +529,7 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
                 <span class="lieo-avatar" aria-hidden="true"><?= htmlspecialchars($userInitials) ?></span>
                 <span class="lieo-account-text d-none d-sm-block">
                     <span class="lieo-account-name"><?= htmlspecialchars($userName) ?></span>
-                    <span class="lieo-account-sub"><?= htmlspecialchars(lieo_role_label($role)) ?><?= $userScope !== '' ? ' · ' . htmlspecialchars($userScope) : '' ?></span>
+                    <span class="lieo-account-sub"><?= htmlspecialchars(lieo_role_label($role) . ($secondaryRole ? ' + ' . lieo_role_label($secondaryRole) : '')) ?><?= $userScope !== '' ? ' · ' . htmlspecialchars($userScope) : '' ?></span>
                 </span>
             </button>
             <div class="dropdown-menu dropdown-menu-right lieo-account-dropdown">
@@ -523,7 +538,7 @@ $isChangePasswordPage = ($pageTitle === 'Change Password');
                         <span class="lieo-avatar mr-2"><?= htmlspecialchars($userInitials) ?></span>
                         <div class="min-width-0">
                             <div class="font-weight-bold text-truncate"><?= htmlspecialchars($userName) ?></div>
-                            <span class="badge lieo-role-badge"><?= htmlspecialchars(lieo_role_label($role)) ?></span>
+                            <span class="badge lieo-role-badge"><?= htmlspecialchars(lieo_role_label($role) . ($secondaryRole ? ' + ' . lieo_role_label($secondaryRole) : '')) ?></span>
                         </div>
                     </div>
                     <div class="lieo-user-email-full"><?= htmlspecialchars($userEmail) ?></div>
@@ -555,9 +570,9 @@ if (!empty($_SESSION['lieo_alert']) && is_array($_SESSION['lieo_alert'])) {
         $messType = 'success';
     }
     ?>
-<div class="alert alert-dismissible fade show m-0 lieo-flash lieo-flash-<?= htmlspecialchars($messType) ?>" role="alert">
+<div class="alert alert-dismissible fade show lieo-flash lieo-flash-<?= htmlspecialchars($messType) ?>" role="alert">
     <?= htmlspecialchars($flashMess) ?>
-    <button type="button" class="close py-1" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+    <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
 </div>
     <?php
     }
