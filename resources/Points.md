@@ -141,3 +141,17 @@ database/run_clgp_section_incharge_flow.php
 
 
 
+Changes
+
+Remove the AMS Depertmnet fetching make it manually only
+Make remarks mandatory to fill
+Show "reason" column in table as well as export excel
+
+
+When security make gate  otu/in add  timeoffice in cc
+
+Flow Chart
+
+
+
+SSO

@@ -17,6 +17,7 @@ $lieoRoot = lieo_root_prefix();
 $adminNav = [
     'dashboard'  => ['label' => 'Dashboard',         'url' => lieo_nav_url('admin', 'index.php'),              'icon' => 'typcn-chart-area-outline'],
     'matrix'     => ['label' => 'LIEO Users',        'url' => lieo_nav_url('admin', 'approval_matrix.php'),    'icon' => 'typcn-flow-merge'],
+    'roles'      => ['label' => 'Role Names',        'url' => lieo_nav_url('admin', 'roles.php'),              'icon' => 'typcn-tags'],
     'departments'=> ['label' => 'Department Master', 'url' => lieo_nav_url('admin', 'departments.php'),        'icon' => 'typcn-th-large'],
     'shifts'     => ['label' => 'Shift Master',       'url' => lieo_nav_url('admin', 'shifts.php'),             'icon' => 'typcn-time'],
     'contractors'=> ['label' => 'Contractor Master', 'url' => lieo_nav_url('admin', 'contractors.php'),        'icon' => 'typcn-briefcase'],

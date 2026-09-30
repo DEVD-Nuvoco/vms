@@ -26,7 +26,6 @@ if ($plant === '' || !in_array($plant, lieo_list_ams_plants(), true)) {
 
 $typeMap = ['HOD' => 'hod', 'N+1' => 'n1', 'N-1' => 'n1', 'SECURITY' => 'security', 'TIME OFFICE' => 'timeoffice', 'TIMEOFFICE' => 'timeoffice'];
 $deptMaster = array_map('strtolower', array_column(lieo_list_all_plant_departments($plant), 'department_name'));
-$amsDepts = array_map('strtolower', lieo_list_ams_departments($plant));
 
 $seen = [];
 $results = [];
@@ -54,7 +53,7 @@ foreach ($body['rows'] as $i => $row) {
         $results[] = ['row' => $i + 1, 'ok' => false, 'message' => 'Department is required for ' . lieo_role_label($step) . '.'];
         continue;
     }
-    if (lieo_matrix_needs_department($step) && !in_array(strtolower($dept), $deptMaster, true) && !in_array(strtolower($dept), $amsDepts, true)) {
+    if (lieo_matrix_needs_department($step) && !in_array(strtolower($dept), $deptMaster, true)) {
         $results[] = ['row' => $i + 1, 'ok' => false, 'message' => "Department '{$dept}' is not in the plant's department master — add it first (Department Master)."];
         continue;
     }

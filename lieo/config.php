@@ -49,6 +49,17 @@ $LIEO_APPROVAL_STEPS = [
     'security'         => 'Security',
 ];
 
+/** Built-in names; Admin → Role Names overrides the label only, never the key. */
+$LIEO_ROLE_DEFAULT_LABELS = array_map(function ($r) { return $r['label']; }, $LIEO_ROLES);
+foreach (lieo_list_role_label_overrides() as $roleKey => $roleLabel) {
+    if (isset($LIEO_ROLES[$roleKey])) {
+        $LIEO_ROLES[$roleKey]['label'] = $roleLabel;
+    }
+    if (isset($LIEO_APPROVAL_STEPS[$roleKey])) {
+        $LIEO_APPROVAL_STEPS[$roleKey] = $roleLabel;
+    }
+}
+
 /**
  * Steps Admin can assign on the Approval Matrix page. Time Office no longer
  * maintains the matrix at all (view-only/tracking role now) — Admin is the
@@ -957,11 +968,21 @@ function lieo_notify_gate_closed(array $app, string $gateAction, string $remark)
         . ($remark !== '' ? '<br><strong>Gate remark:</strong> ' . htmlspecialchars($remark) : '')
         . '<br><br>'
         . lieo_application_email_block(array_merge($app, ['status' => 'Gate_completed']));
-    lieo_send_mail($creator['email'], $creator['name'], $subject, $body, [], [
+    // Time Office of the application's plant is kept in CC on every gate IN/OUT.
+    $cc = [];
+    $ccRoles = [];
+    foreach (lieo_list_role_notify_recipients_for_plant('timeoffice', (string) ($app['plant'] ?? '')) as $to) {
+        if (strcasecmp($to['email'], $creator['email']) !== 0) {
+            $cc[] = $to['email'];
+            $ccRoles[$to['email']] = 'Time Office';
+        }
+    }
+    lieo_send_mail($creator['email'], $creator['name'], $subject, $body, $cc, [
         'context' => 'Gate Closed',
         'headline' => 'Application closed at gate',
         'subhead' => $label . ' completed by Security.',
         'to_role' => lieo_role_label((string) ($creator['role'] ?? 'n1')),
+        'cc_roles' => $ccRoles,
         'cards' => lieo_application_mail_cards(array_merge($app, ['status' => 'Gate_completed'])),
     ]);
 }

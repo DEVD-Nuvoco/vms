@@ -4,7 +4,7 @@ require_once __DIR__ . '/xlsx_writer.php';
 $list = $list ?? [];
 $contractorMap = $contractorMap ?? lieo_contractor_supervisor_map($_SESSION['lieo_plant'] ?? null);
 
-$headers = ['App No', 'Type', 'Workman Name', 'Workman Code', 'Shift', 'Contractor', 'Supervisor', 'Plant', 'Department', 'Date', 'Time', 'Status', 'Step'];
+$headers = ['App No', 'Type', 'Workman Name', 'Workman Code', 'Shift', 'Contractor', 'Supervisor', 'Plant', 'Department', 'Reason', 'Date', 'Time', 'Status', 'Step'];
 $rows = [];
 foreach ($list as $a) {
     $rows[] = [
@@ -17,6 +17,7 @@ foreach ($list as $a) {
         $contractorMap[(int) $a['contractor_id']] ?? '',
         $a['plant'],
         $a['department'],
+        $a['reason'] ?? '',
         $a['application_date'],
         $a['created_at'] ? date('H:i', strtotime($a['created_at'])) : '',
         str_replace('_', ' ', $a['status']),

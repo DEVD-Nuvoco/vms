@@ -272,6 +272,60 @@ function lieo_find_user_by_email(string $email): ?array
     return $row ?: null;
 }
 
+/** Admin role renames → [role_key => label]. Empty if the table isn't migrated yet. */
+function lieo_list_role_label_overrides(): array
+{
+    try {
+        $res = lieo_db()->query('SELECT role_key, label FROM tbl_lieo_role_label');
+        return $res ? array_column($res->fetch_all(MYSQLI_ASSOC), 'label', 'role_key') : [];
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * Save display names only — role keys are never changed. Blank label = back to default.
+ * @param array<string,string> $labels role_key => label
+ * @param array<string,string> $defaults role_key => default label
+ */
+function lieo_save_role_labels(array $labels, array $defaults): array
+{
+    $clean = [];
+    foreach ($defaults as $key => $default) {
+        $label = trim(preg_replace('/\s+/u', ' ', (string) ($labels[$key] ?? '')));
+        if (mb_strlen($label) > 40) {
+            return ['ok' => false, 'message' => 'Role name must be 40 characters or less.'];
+        }
+        $clean[$key] = $label === '' ? $default : $label;
+    }
+    $lower = array_map('mb_strtolower', $clean);
+    if (count(array_unique($lower)) !== count($lower)) {
+        return ['ok' => false, 'message' => 'Two roles cannot have the same name.'];
+    }
+
+    $db = lieo_db();
+    $by = (int) ($_SESSION['lieo_user_id'] ?? 0);
+    try {
+        foreach ($clean as $key => $label) {
+            if ($label === $defaults[$key]) {
+                $stmt = $db->prepare('DELETE FROM tbl_lieo_role_label WHERE role_key = ?');
+                $stmt->bind_param('s', $key);
+            } else {
+                $stmt = $db->prepare(
+                    'INSERT INTO tbl_lieo_role_label (role_key, label, updated_by) VALUES (?,?,?)
+                     ON DUPLICATE KEY UPDATE label = VALUES(label), updated_by = VALUES(updated_by)'
+                );
+                $stmt->bind_param('ssi', $key, $label, $by);
+            }
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {
+        return ['ok' => false, 'message' => 'Could not save — run php database/run_lieo_role_labels.php on the server.'];
+    }
+    return ['ok' => true];
+}
+
 /** Active matrix people sharing one email → [emp_code => emp_name]. */
 function lieo_matrix_people_by_email(string $email): array
 {
@@ -1669,46 +1723,6 @@ function lieo_list_ams_plants(?string $q = null): array
 }
 
 /**
- * Distinct AMS departments for a plant (uses real Department column).
- * @return list<string>
- */
-function lieo_list_ams_departments(string $plant): array
-{
-    $plant = lieo_ams_canonical_plant($plant);
-    if ($plant === '') {
-        return [];
-    }
-    $db = lieo_db();
-    $table = lieo_ams_employee_table();
-    $productSql = lieo_ams_product_line_sql();
-    $plantSql = lieo_ams_plant_match_sql();
-    $stmt = $db->prepare(
-        "SELECT DISTINCT TRIM(Department) AS dept
-         FROM `$table`
-         WHERE empStatus = 'Active'
-           AND $productSql
-           AND $plantSql
-           AND Department IS NOT NULL
-           AND TRIM(Department) != ''
-         ORDER BY dept"
-    );
-    if (!$stmt) {
-        return [];
-    }
-    $stmt->bind_param('s', $plant);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    $deps = [];
-    while ($row = $res->fetch_assoc()) {
-        if (!empty($row['dept'])) {
-            $deps[] = $row['dept'];
-        }
-    }
-    $stmt->close();
-    return $deps;
-}
-
-/**
  * Departments configured for a plant in Department Master (active only). AMS departments are not merged in.
  * @return list<string>
  */
@@ -1903,7 +1917,8 @@ function lieo_ams_department_is_hr(string $plant, string $empEmail, string $empC
         return false;
     }
     $stmt = lieo_db()->prepare(
-        "SELECT ams_department_name FROM tbl_lieo_plant_department WHERE plant = ? AND is_hr = 't' AND status = 'Active' LIMIT 1"
+        "SELECT COALESCE(NULLIF(TRIM(ams_department_name), ''), department_name) AS ams_department_name
+         FROM tbl_lieo_plant_department WHERE plant = ? AND is_hr = 't' AND status = 'Active' LIMIT 1"
     );
     if (!$stmt) {
         return false;
@@ -1957,16 +1972,6 @@ function lieo_submit_department_request(string $plant, string $name, ?int $id = 
         return ['ok' => false, 'message' => 'Plant and department name are required.'];
     }
     $amsDeptName = trim($amsDeptName);
-    if ($isHr && $amsDeptName !== '' && !in_array($amsDeptName, lieo_list_ams_departments($plant), true)) {
-        return ['ok' => false, 'message' => 'Selected AMS department is not valid for this plant.'];
-    }
-    if (!$isHr) {
-        foreach (lieo_list_ams_departments($plant) as $amsDept) {
-            if (lieo_dept_names_equal($name, (string) $amsDept)) {
-                return ['ok' => false, 'code' => 'ams_duplicate', 'message' => 'Department already mentioned in the AMS portal'];
-            }
-        }
-    }
     foreach (lieo_list_plant_departments($plant) as $row) {
         if ($id !== null && (int) ($row['dept_id'] ?? 0) === $id) {
             continue;
@@ -2109,27 +2114,8 @@ function lieo_save_plant_department(string $plant, string $name, ?int $id = null
     }
 
     $amsDeptName = trim($amsDeptName);
-    if ($isHr && $amsDeptName !== '' && !in_array($amsDeptName, lieo_list_ams_departments($plant), true)) {
-        return ['ok' => false, 'message' => 'Selected AMS department is not valid for this plant.'];
-    }
 
-    // Strict AMS check: "Sales " / "sales" must match existing AMS "Sales".
-    // Exception: marking the HR row *as* its own matching AMS department (e.g.
-    // name "Human Resources" mapped to AMS "Human Resources") is the normal
-    // case, not an accidental duplicate — only block it when isHr is false.
-    if (!$isHr) {
-        foreach (lieo_list_ams_departments($plant) as $amsDept) {
-            if (lieo_dept_names_equal($name, (string) $amsDept)) {
-                return [
-                    'ok' => false,
-                    'code' => 'ams_duplicate',
-                    'message' => 'Department already mentioned in the AMS portal',
-                ];
-            }
-        }
-    }
-
-    // Also block duplicates already in this plant master.
+    // Department Master is manual-only — block duplicates already in this plant master.
     foreach (lieo_list_plant_departments($plant) as $row) {
         if ($id !== null && (int) ($row['dept_id'] ?? 0) === $id) {
             continue;
@@ -2237,7 +2223,7 @@ function lieo_add_plant_departments_bulk(string $plant, array $names): array
             : ('Added ' . count($added) . ' departments.');
     }
     if ($skipped && !$added && !$errors) {
-        $message = 'All entered names already exist (AMS or plant master).';
+        $message = 'All entered names already exist in the plant master.';
     } elseif ($skipped && $message !== '') {
         $message .= ' ' . count($skipped) . ' skipped (already exist).';
     }

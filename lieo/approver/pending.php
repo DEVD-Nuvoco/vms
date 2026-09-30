@@ -11,8 +11,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $remark = trim($_POST['remark'] ?? '');
 
-    if ($action === 'reject' && $remark === '') {
-        $_SESSION['lieo_mess'] = 'Please enter remarks before rejecting.';
+    if ($remark === '') {
+        $_SESSION['lieo_mess'] = 'Please enter remarks before approving or rejecting.';
         $_SESSION['lieo_mess_type'] = 'danger';
         header('Location: pending.php');
         exit;
@@ -113,8 +113,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <form method="post">
                     <input type="hidden" name="application_id" value="<?= (int)$p['application_id'] ?>">
                     <div class="form-group">
-                        <label>Remarks</label>
-                        <textarea name="remark" class="form-control" rows="2" placeholder="Optional / required on reject"></textarea>
+                        <label>Remarks <span class="text-danger">*</span></label>
+                        <textarea name="remark" class="form-control" rows="2" required placeholder="Enter remarks"></textarea>
                     </div>
                     <button type="submit" name="action" value="approve" class="btn btn-lieo">Approve</button>
                     <button type="submit" name="action" value="reject" class="btn btn-outline-danger">Reject</button>

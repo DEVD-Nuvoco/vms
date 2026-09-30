@@ -75,7 +75,7 @@ if (!isset($workmenList)) {
                 <tr>
                     <th>No</th><th>Type</th><th>Workman</th><th>Code</th><th>Shift</th>
                     <th>Contractor</th><th>Supervisor</th>
-                    <th>Plant</th><th>Dept</th><th>Date</th><th>Time</th><th>Status</th><th>Step</th>
+                    <th>Plant</th><th>Dept</th><th>Reason</th><th>Date</th><th>Time</th><th>Status</th><th>Step</th>
                 </tr>
             </thead>
             <tbody>
@@ -90,6 +90,7 @@ if (!isset($workmenList)) {
                     <td><?= htmlspecialchars($contractorMap[(int) $a['contractor_id']] ?? '') ?></td>
                     <td><?= htmlspecialchars($a['plant']) ?></td>
                     <td><?= htmlspecialchars($a['department']) ?></td>
+                    <td><?= htmlspecialchars($a['reason'] ?? '') ?></td>
                     <td><?= htmlspecialchars($a['application_date']) ?></td>
                     <td><?= htmlspecialchars($a['created_at'] ? date('H:i', strtotime($a['created_at'])) : '') ?></td>
                     <td><?= lieo_status_badge($a['status']) ?></td>

@@ -99,10 +99,8 @@ if ($editId > 0) {
 if ($editRow && $plant === '') {
     $plant = lieo_ams_canonical_plant((string) ($editRow['plant'] ?? ''));
 }
-$amsHint = $plant !== '' ? lieo_list_ams_departments($plant) : [];
 $overviewRows = lieo_list_all_plant_departments($filterPlant !== '' ? $filterPlant : null);
 
-$overviewPlants = $filterPlant !== '' ? [$filterPlant] : $plantsWithDeptData;
 $overviewCombined = [];
 foreach ($overviewRows as $r) {
     $overviewCombined[] = [
@@ -113,29 +111,6 @@ foreach ($overviewRows as $r) {
         'status' => $r['status'] ?? '',
         'dept_id' => (int) ($r['dept_id'] ?? 0),
     ];
-}
-foreach ($overviewPlants as $p) {
-    foreach (lieo_list_ams_departments($p) as $amsDept) {
-        $alreadyExtra = false;
-        foreach ($overviewRows as $r) {
-            if (lieo_ams_canonical_plant((string) ($r['plant'] ?? '')) === $p
-                && lieo_dept_names_equal((string) ($r['department_name'] ?? ''), $amsDept)) {
-                $alreadyExtra = true;
-                break;
-            }
-        }
-        if ($alreadyExtra) {
-            continue;
-        }
-        $overviewCombined[] = [
-            'plant' => $p,
-            'department_name' => $amsDept,
-            'source' => 'ams',
-            'is_hr' => 'f',
-            'status' => '',
-            'dept_id' => 0,
-        ];
-    }
 }
 usort($overviewCombined, function ($a, $b) {
     return $a['plant'] === $b['plant']
@@ -148,9 +123,8 @@ require_once __DIR__ . '/../includes/header.php';
 
 <h2 class="lieo-title mb-2">Department Master</h2>
 <p class="text-muted mb-4">
-    Add extra departments plant-wise when an employee’s AMS department is missing — for example before assigning
-    <strong>Time Office</strong> in LIEO Users. AMS departments are always included automatically;
-    entries here are add-ons only. Adding or editing a department needs the HR department HOD's approval before it takes effect.
+    Departments are maintained manually here, plant-wise — only departments added here appear in LIEO Users and applications.
+    Adding or editing a department needs the HR department HOD's approval before it takes effect.
 </p>
 
 <?php if ($pendingDeptRequests): ?>
@@ -233,53 +207,12 @@ require_once __DIR__ . '/../includes/header.php';
 
 <?php if ($plant === ''): ?>
 <div class="alert alert-light border">
-    Select a plant above to view AMS departments and add extras for that plant.
+    Select a plant above to add departments for that plant.
 </div>
 <?php else: ?>
 
-<?php if ($amsHint): ?>
-<style>
-.lieo-ams-dept-ref {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: .85rem 1rem;
-    margin-bottom: 1.25rem;
-}
-.lieo-ams-dept-ref h6 {
-    font-size: .8rem;
-    font-weight: 700;
-    letter-spacing: .02em;
-    text-transform: uppercase;
-    color: #64748b;
-    margin: 0 0 .65rem;
-}
-.lieo-ams-dept-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
-.lieo-ams-dept-chip {
-    display: inline-block;
-    padding: .28rem .7rem;
-    border-radius: 999px;
-    font-size: .8125rem;
-    font-weight: 600;
-    color: #166534;
-    background: #ecfdf3;
-    border: 1px solid #bbf7d0;
-}
-.lieo-ams-dept-ref .hint { font-size: .75rem; color: #94a3b8; margin: .55rem 0 0; }
-</style>
-<div class="lieo-ams-dept-ref">
-    <h6>AMS departments on <?= htmlspecialchars($plant) ?> (reference)</h6>
-    <div class="lieo-ams-dept-chips">
-        <?php foreach ($amsHint as $amsDept): ?>
-            <span class="lieo-ams-dept-chip"><?= htmlspecialchars($amsDept) ?></span>
-        <?php endforeach; ?>
-    </div>
-    <p class="hint mb-0"><?= count($amsHint) ?> AMS departments. Add only names not already listed here.</p>
-</div>
-<?php endif; ?>
-
 <div class="card shadow-sm mb-4">
-    <div class="card-header bg-white font-weight-bold">Add extra department — <?= htmlspecialchars($plant) ?></div>
+    <div class="card-header bg-white font-weight-bold">Add department —<?= htmlspecialchars($plant) ?></div>
     <div class="card-body">
         <form method="post" class="form-inline flex-wrap">
             <input type="hidden" name="action" value="<?= $editRow ? 'edit' : 'add' ?>">
@@ -300,9 +233,8 @@ require_once __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <small class="text-muted d-block w-100 mt-1">
                 Only one department per plant can be marked HR — checking it here unchecks any other.
-                This flags which department unlocks the HOD's "User Approval" / "Plant Users" tabs. To also gate
-                Time Office / Security assignment by an employee's AMS Department, tick the HR checkbox on that
-                department's row in the AMS overview below instead — it maps itself automatically.
+                This flags which department unlocks the HOD's "User Approval" / "Plant Users" tabs, and Time Office /
+                Security can only be assigned to employees whose AMS Department has this same name.
             </small>
         </form>
     </div>
@@ -350,24 +282,6 @@ require_once __DIR__ . '/../includes/header.php';
                 <tr><td colspan="5" class="text-muted text-center py-4">No departments to show yet.</td></tr>
             <?php endif; ?>
             <?php foreach ($overviewCombined as $r): ?>
-                <?php if ($r['source'] === 'ams'): ?>
-                <tr class="lieo-ams-row">
-                    <td class="font-weight-bold"><?= htmlspecialchars($r['plant']) ?></td>
-                    <td><?= htmlspecialchars($r['department_name']) ?> <span class="badge badge-info">AMS</span></td>
-                    <td>
-                        <form method="post" class="d-inline" title="Mark as this plant's HR department">
-                            <input type="hidden" name="action" value="add">
-                            <input type="hidden" name="plant" value="<?= htmlspecialchars($r['plant']) ?>">
-                            <?php if ($filterPlant !== ''): ?><input type="hidden" name="filter_plant" value="<?= htmlspecialchars($filterPlant) ?>"><?php endif; ?>
-                            <input type="hidden" name="department_name" value="<?= htmlspecialchars($r['department_name']) ?>">
-                            <input type="hidden" name="ams_department_name" value="<?= htmlspecialchars($r['department_name']) ?>">
-                            <input type="checkbox" name="is_hr" value="1" onchange="this.form.submit()">
-                        </form>
-                    </td>
-                    <td class="text-muted small">—</td>
-                    <td class="text-muted small">—</td>
-                </tr>
-                <?php continue; endif; ?>
                 <?php
                     $rowPlant = $r['plant'];
                     $deptId = $r['dept_id'];

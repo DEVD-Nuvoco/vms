@@ -20,6 +20,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($decision === '') {
         $_SESSION['lieo_mess'] = 'Invalid action.';
         $_SESSION['lieo_mess_type'] = 'danger';
+    } elseif ($remark === '') {
+        $_SESSION['lieo_mess'] = 'Please enter a remark before approving or rejecting.';
+        $_SESSION['lieo_mess_type'] = 'danger';
     } else {
         $result = lieo_decide_user_request($requestId, $decision, (int) $_SESSION['lieo_user_id'], $remark);
         $_SESSION['lieo_mess'] = $result['message'] ?? ($result['ok'] ? 'Decision recorded.' : 'Could not process.');
@@ -85,8 +88,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <form method="post">
                     <input type="hidden" name="request_id" value="<?= (int) $r['request_id'] ?>">
                     <div class="form-group">
-                        <label>Remark</label>
-                        <textarea name="remark" class="form-control" rows="2" placeholder="Optional"></textarea>
+                        <label>Remark <span class="text-danger">*</span></label>
+                        <textarea name="remark" class="form-control" rows="2" required placeholder="Enter remark"></textarea>
                     </div>
                     <button type="submit" name="action" value="approve" class="btn btn-lieo">Approve</button>
                     <button type="submit" name="action" value="reject" class="btn btn-outline-danger">Reject</button>
