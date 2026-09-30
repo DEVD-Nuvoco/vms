@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
-lieo_require_role(['timeoffice']);
+lieo_require_role(['security']);
 
 $pageTitle = 'Application Tracking';
 $activeNav = 'list';

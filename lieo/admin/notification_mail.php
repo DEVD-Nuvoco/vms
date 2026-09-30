@@ -1,16 +1,26 @@
 <?php
-/** Contractor-reactivation CC list — moved from Time Office to Admin (view-only now). */
+/** Per-plant, per-context CC lists for LIEO notification mail (Contractor Reactivation, Approval Matrix, Department Master). */
 require_once __DIR__ . '/../config.php';
 lieo_require_role(['admin']);
 
-$pageTitle = 'Contractor Reactivation Notification';
+$LIEO_NOTIFY_CONTEXTS = [
+    'reactivation' => 'Contractor Reactivation',
+    'approval_matrix' => 'LIEO Users',
+    'department' => 'Department Master',
+];
+
+$pageTitle = 'Notification Configuration';
 $activeNav = 'notify';
 
 $plant = lieo_ams_canonical_plant($_GET['plant'] ?? $_POST['plant'] ?? '');
 
 function lieo_admin_notify_url(string $plant = ''): string
 {
-    return 'notification_mail.php' . ($plant !== '' ? ('?plant=' . rawurlencode($plant)) : '');
+    $q = [];
+    if ($plant !== '') {
+        $q['plant'] = $plant;
+    }
+    return 'notification_mail.php?' . http_build_query($q);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -20,46 +30,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['lieo_mess'] = 'Select a plant first.';
         $_SESSION['lieo_mess_type'] = 'danger';
     } elseif ($action === 'add') {
-        $result = lieo_add_plant_notify_email($postPlant, $_POST['email'] ?? '');
-        $_SESSION['lieo_mess'] = $result['ok'] ? 'Email added.' : ($result['message'] ?? 'Could not add.');
-        if (empty($result['ok'])) {
-            $_SESSION['lieo_mess_type'] = 'danger';
-            $_SESSION['lieo_alert'] = [
-                'title' => 'Cannot add email',
-                'message' => (string) ($result['message'] ?? 'Could not add.'),
-                'variant' => 'danger',
-            ];
+        $ctxs = array_values(array_intersect((array) ($_POST['contexts'] ?? []), array_keys($LIEO_NOTIFY_CONTEXTS)));
+        $emailsIn = array_filter(array_map('trim', (array) ($_POST['emails'] ?? [])));
+        $errs = [];
+        if (!$ctxs || !$emailsIn) {
+            $errs[] = 'Select at least one notification and one email.';
         }
-    } elseif ($action === 'delete') {
-        lieo_delete_plant_notify_email((int) ($_POST['id'] ?? 0), $postPlant);
-        $_SESSION['lieo_mess'] = 'Email removed.';
+        foreach ($ctxs as $c) {
+            foreach ($emailsIn as $em) {
+                $result = lieo_add_plant_notify_email($postPlant, $em, $c);
+                if (empty($result['ok'])) {
+                    $errs[] = $em . ': ' . ($result['message'] ?? 'Could not add.');
+                }
+            }
+        }
+        $_SESSION['lieo_mess'] = $errs ? implode(' ', $errs) : 'Email(s) added.';
+        if ($errs) {
+            $_SESSION['lieo_mess_type'] = 'danger';
+            $_SESSION['lieo_alert'] = ['title' => 'Cannot add email', 'message' => implode(' ', $errs), 'variant' => 'danger'];
+        }
+    } elseif (in_array($action, ['toggle', 'edit', 'delete'], true)) {
+        // One table row = one email; its notifications live in one DB row each. Act on the whole group.
+        $oldEmail = strtolower(trim((string) ($_POST['old_email'] ?? '')));
+        $group = [];
+        foreach (array_keys($LIEO_NOTIFY_CONTEXTS) as $ck) {
+            foreach (lieo_list_plant_notify_rows($postPlant, $ck) as $r) {
+                if (strtolower(trim((string) $r['email'])) === $oldEmail) {
+                    $group[$ck] = (int) $r['notify_id'];
+                }
+            }
+        }
+        if ($action === 'toggle') {
+            $st = ($_POST['status'] ?? '') === 'Active' ? 'Active' : 'Inactive';
+            foreach ($group as $id) {
+                lieo_set_plant_notify_status($id, $postPlant, $st);
+            }
+            $_SESSION['lieo_mess'] = 'Status updated.';
+        } elseif ($action === 'delete') {
+            foreach ($group as $id) {
+                lieo_delete_plant_notify_email($id, $postPlant);
+            }
+            $_SESSION['lieo_mess'] = 'Email removed.';
+        } else {
+            $newEmail = strtolower(trim((string) (((array) ($_POST['emails'] ?? []))[0] ?? '')));
+            $want = array_intersect((array) ($_POST['contexts'] ?? []), array_keys($LIEO_NOTIFY_CONTEXTS));
+            $result = ['ok' => true];
+            if (!$want) {
+                $result = ['ok' => false, 'message' => 'Select at least one notification.'];
+            }
+            foreach ($group as $ck => $id) {
+                if (empty($result['ok'])) {
+                    break;
+                }
+                if (!in_array($ck, $want, true)) {
+                    lieo_delete_plant_notify_email($id, $postPlant);
+                } elseif ($newEmail !== $oldEmail) {
+                    $result = lieo_update_plant_notify_email($id, $postPlant, $newEmail);
+                }
+            }
+            foreach ($want as $ck) {
+                if (!empty($result['ok']) && !isset($group[$ck])) {
+                    $result = lieo_add_plant_notify_email($postPlant, $newEmail, $ck);
+                }
+            }
+            $_SESSION['lieo_mess'] = $result['ok'] ? 'Updated.' : ($result['message'] ?? 'Could not update.');
+            if (empty($result['ok'])) {
+                $_SESSION['lieo_mess_type'] = 'danger';
+            }
+        }
     }
     header('Location: ' . lieo_admin_notify_url($postPlant));
     exit;
 }
 
-$rows = $plant !== '' ? lieo_list_plant_notify_rows($plant) : [];
+$rows = [];
+if ($plant !== '') {
+    foreach ($LIEO_NOTIFY_CONTEXTS as $ck => $cl) {
+        foreach (lieo_list_plant_notify_rows($plant, $ck) as $r) {
+            $r['context_label'] = $cl;
+            $r['context_key'] = $ck;
+            $rows[] = $r;
+        }
+    }
+}
+$groups = [];
+foreach ($rows as $r) {
+    $k = strtolower(trim((string) $r['email']));
+    $groups[$k]['email'] = $r['email'];
+    $groups[$k]['ctx'][$r['context_key']] = $r['context_label'];
+    $groups[$k]['active'] = ($groups[$k]['active'] ?? false) || ($r['status'] ?? '') === 'Active';
+}
 $amsEmails = $plant !== '' ? lieo_list_ams_emails_for_plant($plant) : [];
 $amsByEmail = [];
 foreach ($amsEmails as $ae) {
     $amsByEmail[strtolower((string) $ae['email'])] = $ae;
 }
-$already = [];
-foreach ($rows as $r) {
-    if (($r['status'] ?? '') === 'Active') {
-        $already[strtolower(trim((string) $r['email']))] = true;
-    }
-}
-
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<h2 class="lieo-title mb-2">Contractor Reactivation Notification</h2>
+<h2 class="lieo-title mb-2">Notification Configuration</h2>
 <p class="text-muted mb-4">
-    Multiple CC emails per plant. When Time Office requests contractor reactivation, mail goes <strong>TO</strong> the HR
-    department HOD and <strong>CC</strong> these addresses until they approve or reject. Choose from AMS emails for that
-    plant only.
+    Select a plant, the notification(s) and the CC email(s) to add. CC lists are kept separate per notification. Whoever the mail already goes <strong>TO</strong>
+    for that event (HR department HOD for reactivation, the assigned employee for LIEO Users, Time Office for
+    Department Master) also gets these addresses in <strong>CC</strong>. Choose from AMS emails for that plant only.
 </p>
+
 
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-white font-weight-bold">Select plant</div>
@@ -104,12 +179,25 @@ require_once __DIR__ . '/../includes/header.php';
 <div class="card shadow-sm mb-4 lieo-notify-card">
     <div class="card-body">
         <form method="post" id="notifyEmailForm" autocomplete="off">
-            <input type="hidden" name="action" value="add">
+            <input type="hidden" name="action" value="add" id="notifyAction">
+            <input type="hidden" name="old_email" value="" id="notifyEditId" disabled>
             <input type="hidden" name="plant" value="<?= htmlspecialchars($plant) ?>">
-            <input type="hidden" name="email" id="notifyEmail" value="">
+            <div id="notifyEmailInputs"></div>
             <div class="lieo-notify-form-row">
+                <div class="lieo-email-picker" style="flex:0 1 260px;min-width:220px;">
+                    <label>Notification</label>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle w-100 text-left" type="button" id="ctxBtn" data-toggle="dropdown">Select notification(s)</button>
+                        <div class="dropdown-menu p-2" style="min-width:100%;" onclick="event.stopPropagation()">
+                            <?php foreach ($LIEO_NOTIFY_CONTEXTS as $ck => $cl): ?>
+                            <label class="d-block mb-1"><input type="checkbox" class="ctx-cb" name="contexts[]" value="<?= $ck ?>"> <?= htmlspecialchars($cl) ?></label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
                 <div class="lieo-email-picker" id="notifyEmailPicker">
                     <label for="notifyEmailSearch">CC email (AMS — <?= htmlspecialchars($plant) ?>)</label>
+                    <div id="notifyChips" class="mb-1"></div>
                     <div class="lieo-email-picker-controls">
                         <div class="lieo-email-search-wrap">
                             <input type="text" id="notifyEmailSearch" class="form-control"
@@ -118,6 +206,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <div id="notifyEmailResults" class="list-group" style="display:none;" role="listbox"></div>
                         </div>
                         <button class="btn btn-lieo" type="submit" id="notifyEmailAddBtn" disabled>Add</button>
+                        <button class="btn btn-outline-secondary" type="button" id="notifyCancelEdit" style="display:none;">Cancel</button>
                     </div>
                     <div class="lieo-notify-hint">
                         <?= count($amsEmails) ?> plant email<?= count($amsEmails) === 1 ? '' : 's' ?> available from AMS.
@@ -134,27 +223,35 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table mb-0 lieo-notify-table">
                 <thead>
-                    <tr><th>Emp Code</th><th>Name</th><th>Email</th><th>Department</th><th>Status</th><th></th></tr>
+                    <tr><th>Plant</th><th>Notification</th><th>Emp Code</th><th>Name</th><th>Email</th><th>Status</th><th></th></tr>
                 </thead>
                 <tbody>
-                <?php if (!$rows): ?>
-                    <tr><td colspan="6" class="text-muted text-center py-4">No CC emails yet.</td></tr>
+                <?php if (!$groups): ?>
+                    <tr><td colspan="7" class="text-muted text-center py-4">No CC emails yet.</td></tr>
                 <?php endif; ?>
-                <?php foreach ($rows as $r): ?>
+                <?php foreach ($groups as $em => $g): ?>
                     <?php
-                        $em = strtolower(trim((string) ($r['email'] ?? '')));
                         $ams = $amsByEmail[$em] ?? null;
-                        $empCode = $ams['emp_code'] ?? '—';
-                        $empName = $ams['emp_name'] ?? '—';
-                        $dept = $ams['department'] ?? '—';
+                        $status = $g['active'] ? 'Active' : 'Inactive';
+                        $old = htmlspecialchars((string) $g['email']);
                     ?>
                     <tr>
-                        <td class="lieo-notify-code"><?= htmlspecialchars((string) $empCode) ?></td>
-                        <td><?= htmlspecialchars((string) $empName) ?></td>
-                        <td><?= htmlspecialchars((string) ($r['email'] ?? '')) ?></td>
-                        <td><?= htmlspecialchars((string) $dept) ?></td>
-                        <td><?= lieo_status_badge($r['status'] ?? '') ?></td>
+                        <td><?= htmlspecialchars($plant) ?></td>
+                        <td><?= htmlspecialchars(implode(', ', $g['ctx'])) ?></td>
+                        <td class="lieo-notify-code"><?= htmlspecialchars((string) ($ams['emp_code'] ?? '—')) ?></td>
+                        <td><?= htmlspecialchars((string) ($ams['emp_name'] ?? '—')) ?></td>
+                        <td><?= $old ?></td>
+                        <td><?= lieo_status_badge($status) ?></td>
                         <td class="text-nowrap text-right">
+                            <form method="post" class="d-inline">
+                                <input type="hidden" name="action" value="toggle">
+                                <input type="hidden" name="plant" value="<?= htmlspecialchars($plant) ?>">
+                                <input type="hidden" name="old_email" value="<?= $old ?>">
+                                <input type="hidden" name="status" value="<?= $status === 'Active' ? 'Inactive' : 'Active' ?>">
+                                <button class="btn btn-sm btn-outline-secondary"><?= $status === 'Active' ? 'Deactivate' : 'Activate' ?></button>
+                            </form>
+                            <button type="button" class="btn btn-sm btn-outline-primary lieo-edit-btn"
+                                    data-ctx="<?= htmlspecialchars(implode(',', array_keys($g['ctx']))) ?>" data-email="<?= $old ?>">Edit</button>
                             <form method="post" class="d-inline"
                                   data-lieo-confirm="Remove this notification email?"
                                   data-lieo-confirm-title="Remove email"
@@ -162,7 +259,7 @@ require_once __DIR__ . '/../includes/header.php';
                                   data-lieo-confirm-ok="Remove">
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="plant" value="<?= htmlspecialchars($plant) ?>">
-                                <input type="hidden" name="id" value="<?= (int) $r['notify_id'] ?>">
+                                <input type="hidden" name="old_email" value="<?= $old ?>">
                                 <button class="btn btn-sm btn-outline-danger">Delete</button>
                             </form>
                         </td>
@@ -226,18 +323,59 @@ require_once __DIR__ . '/../includes/header.php';
 
     <?php if ($plant !== ''): ?>
     var emails = <?= json_encode(array_values($amsEmails), JSON_UNESCAPED_UNICODE) ?>;
-    var already = <?= json_encode($already) ?>;
     var $esearch = document.getElementById('notifyEmailSearch');
-    var $hidden = document.getElementById('notifyEmail');
+    var selected = [];
+    var $inputs = document.getElementById('notifyEmailInputs');
+    var $chips = document.getElementById('notifyChips');
     var $ebox = document.getElementById('notifyEmailResults');
     var $btn = document.getElementById('notifyEmailAddBtn');
     var $eform = document.getElementById('notifyEmailForm');
     var $picker = document.getElementById('notifyEmailPicker');
-    if ($esearch && $hidden && $ebox && $picker) {
+    var $ctxBtn = document.getElementById('ctxBtn');
+    document.querySelectorAll('.ctx-cb').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+            var n = [].map.call(document.querySelectorAll('.ctx-cb:checked'), function (x) { return x.parentNode.textContent.trim(); });
+            $ctxBtn.textContent = n.length ? n.join(', ') : 'Select notification(s)';
+        });
+    });
+    var editing = false;
+    if ($esearch && $ebox && $picker) {
         function esc(s) {
             return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
-        function clearSelection() { $hidden.value = ''; $btn.disabled = true; }
+        function sync() {
+            $inputs.innerHTML = ''; $chips.innerHTML = '';
+            selected.forEach(function (em, i) {
+                $inputs.insertAdjacentHTML('beforeend', '<input type="hidden" name="emails[]" value="' + esc(em) + '">');
+                $chips.insertAdjacentHTML('beforeend', '<span class="badge badge-secondary mr-1 p-2">' + esc(em) + ' <a href="#" data-rm="' + i + '" class="text-white">&times;</a></span>');
+            });
+            $btn.disabled = !selected.length;
+        }
+        function setEdit(on, ctxs, email) {
+            editing = on;
+            document.getElementById('notifyAction').value = on ? 'edit' : 'add';
+            var $id = document.getElementById('notifyEditId');
+            $id.disabled = !on; $id.value = on ? email : '';
+            var list = on ? ctxs.split(',') : [];
+            document.querySelectorAll('.ctx-cb').forEach(function (cb) { cb.checked = list.indexOf(cb.value) >= 0; });
+            $ctxBtn.textContent = on ? [].map.call(document.querySelectorAll('.ctx-cb:checked'), function (x) { return x.parentNode.textContent.trim(); }).join(', ') : 'Select notification(s)';
+            selected = on ? [email] : [];
+            $btn.textContent = on ? 'Save' : 'Add';
+            document.getElementById('notifyCancelEdit').style.display = on ? '' : 'none';
+            sync();
+            if (on) { $eform.scrollIntoView({ behavior: 'smooth', block: 'center' }); $esearch.focus(); }
+        }
+        document.querySelectorAll('.lieo-edit-btn').forEach(function (b) {
+            b.addEventListener('click', function () { setEdit(true, b.getAttribute('data-ctx'), b.getAttribute('data-email')); });
+        });
+        document.getElementById('notifyCancelEdit').addEventListener('click', function () { setEdit(false); });
+        $chips.addEventListener('click', function (e) {
+            var r = e.target.closest('[data-rm]');
+            if (!r) return;
+            e.preventDefault();
+            selected.splice(+r.getAttribute('data-rm'), 1);
+            sync();
+        });
         function render(q) {
             q = (q || '').trim().toLowerCase();
             var html = '';
@@ -250,9 +388,9 @@ require_once __DIR__ . '/../includes/header.php';
                 var dept = String(row.department || '');
                 var hay = (email + ' ' + name + ' ' + code + ' ' + dept).toLowerCase();
                 if (q && hay.indexOf(q) < 0) continue;
-                var used = !!already[email.toLowerCase()];
-                html += '<button type="button" class="list-group-item list-group-item-action' + (used ? ' email-used' : '') + '" data-email="' + esc(email) + '"' + (used ? ' disabled title="Already added"' : '') + '>'
-                    + '<div class="email-main">' + esc(email) + (used ? ' <span class="text-muted">(already added)</span>' : '') + '</div>'
+                var used = selected.indexOf(email) >= 0;
+                html += '<button type="button" class="list-group-item list-group-item-action' + (used ? ' email-used' : '') + '" data-email="' + esc(email) + '"' + (used ? ' disabled title="Selected"' : '') + '>'
+                    + '<div class="email-main">' + esc(email) + (used ? ' <span class="text-muted">(selected)</span>' : '') + '</div>'
                     + '<div class="email-meta">' + (code ? esc(code) + ' · ' : '') + esc(name || '—') + (dept ? ' · ' + esc(dept) : '') + '</div></button>';
                 shown += 1;
                 if (shown >= 80) break;
@@ -261,25 +399,23 @@ require_once __DIR__ . '/../includes/header.php';
             $ebox.style.display = 'block';
         }
         $esearch.addEventListener('focus', function () { render($esearch.value); });
-        $esearch.addEventListener('input', function () { clearSelection(); render($esearch.value); });
+        $esearch.addEventListener('input', function () { render($esearch.value); });
         $ebox.addEventListener('click', function (e) {
             var b = e.target.closest('[data-email]');
             if (!b || b.disabled) return;
             var email = b.getAttribute('data-email') || '';
-            $hidden.value = email;
-            $esearch.value = email;
-            $btn.disabled = !email;
+            if (editing) selected = [email]; else if (email && selected.indexOf(email) < 0) selected.push(email);
+            sync();
+            $esearch.value = '';
             $ebox.style.display = 'none';
         });
         document.addEventListener('click', function (e) {
             if (!$picker.contains(e.target)) $ebox.style.display = 'none';
         });
         $eform.addEventListener('submit', function (e) {
-            if (!$hidden.value) {
+            if (!selected.length || !document.querySelector('.ctx-cb:checked')) {
                 e.preventDefault();
-                if (window.lieoAlert) lieoAlert({ title: 'Select an email', message: 'Pick a plant AMS email from the list.' });
-                render($esearch.value);
-                $esearch.focus();
+                if (window.lieoAlert) lieoAlert({ title: 'Incomplete', message: 'Select at least one notification and one email.' });
             }
         });
     }

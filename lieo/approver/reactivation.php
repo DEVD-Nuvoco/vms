@@ -31,11 +31,11 @@ $list = lieo_list_reactivation_requests($plant !== '' ? $plant : null);
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<h2 class="lieo-title mb-2">Reactivation Requests</h2>
+<h2 class="lieo-title mb-2">Contractor Reactivation Requests</h2>
 <p class="text-muted mb-4">Deactivated contractors require HR department HOD approval before reactivation<?= $plant !== '' ? ' (plant ' . htmlspecialchars($plant) . ')' : '' ?>.</p>
 
 <?php if (!$list): ?>
-<div class="alert alert-success">No pending reactivation requests.</div>
+<div class="alert alert-success">No pending contractor reactivation requests.</div>
 <?php else: ?>
 <table class="table table-bordered lieo-datatable">
     <thead>

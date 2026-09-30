@@ -37,9 +37,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['lieo_mess_type'] = 'danger';
     } elseif ($action === 'add' || $action === 'edit') {
         $id = $action === 'edit' ? (int) ($_POST['id'] ?? 0) : null;
-        $result = lieo_save_plant_department($postPlant, $_POST['department_name'] ?? '', $id, !empty($_POST['is_hr']), (string) ($_POST['ams_department_name'] ?? ''));
+        $deptName = (string) ($_POST['department_name'] ?? '');
+        $result = lieo_submit_department_request($postPlant, $deptName, $id, !empty($_POST['is_hr']), (string) ($_POST['ams_department_name'] ?? ''));
         if (!empty($result['ok'])) {
-            $_SESSION['lieo_mess'] = 'Department saved.';
+            $_SESSION['lieo_mess'] = (string) ($result['message'] ?? 'Request submitted.');
             $_SESSION['lieo_mess_type'] = 'success';
         } else {
             $msg = (string) ($result['message'] ?? 'Save failed.');
@@ -52,19 +53,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
     } elseif ($action === 'delete') {
-        lieo_delete_plant_department((int) ($_POST['id'] ?? 0), $postPlant);
+        $deptId = (int) ($_POST['id'] ?? 0);
+        $deptRow = lieo_find_plant_department_by_id($deptId, $postPlant);
+        lieo_delete_plant_department($deptId, $postPlant);
+        if ($deptRow) {
+            lieo_notify_department_changed($postPlant, (string) $deptRow['department_name'], 'deleted');
+        }
         $_SESSION['lieo_mess'] = 'Department deleted.';
     } elseif ($action === 'deactivate') {
-        lieo_set_plant_department_status((int) ($_POST['id'] ?? 0), $postPlant, 'Inactive');
+        $deptId = (int) ($_POST['id'] ?? 0);
+        $deptRow = lieo_find_plant_department_by_id($deptId, $postPlant);
+        lieo_set_plant_department_status($deptId, $postPlant, 'Inactive');
+        if ($deptRow) {
+            lieo_notify_department_changed($postPlant, (string) $deptRow['department_name'], 'deactivated');
+        }
         $_SESSION['lieo_mess'] = 'Department deactivated.';
     } elseif ($action === 'activate') {
-        lieo_set_plant_department_status((int) ($_POST['id'] ?? 0), $postPlant, 'Active');
+        $deptId = (int) ($_POST['id'] ?? 0);
+        $deptRow = lieo_find_plant_department_by_id($deptId, $postPlant);
+        lieo_set_plant_department_status($deptId, $postPlant, 'Active');
+        if ($deptRow) {
+            lieo_notify_department_changed($postPlant, (string) $deptRow['department_name'], 'activated');
+        }
         $_SESSION['lieo_mess'] = 'Department activated.';
     }
 
     header('Location: ' . lieo_admin_departments_url($postPlant, $postFilter));
     exit;
 }
+
+$reqPlant = $plant !== '' ? $plant : $filterPlant;
+$pendingDeptRequests = $reqPlant !== '' ? lieo_list_department_requests($reqPlant, 'Pending') : [];
+$pendingDeptTargets = lieo_list_pending_department_target_requests();
 
 $editId = (int) ($_GET['edit'] ?? 0);
 $editRow = null;
@@ -129,9 +149,21 @@ require_once __DIR__ . '/../includes/header.php';
 <h2 class="lieo-title mb-2">Department Master</h2>
 <p class="text-muted mb-4">
     Add extra departments plant-wise when an employee’s AMS department is missing — for example before assigning
-    <strong>Time Office</strong> in the Approval Matrix. AMS departments are always included automatically;
-    entries here are add-ons only.
+    <strong>Time Office</strong> in LIEO Users. AMS departments are always included automatically;
+    entries here are add-ons only. Adding or editing a department needs the HR department HOD's approval before it takes effect.
 </p>
+
+<?php if ($pendingDeptRequests): ?>
+<div class="alert alert-warning">
+    <strong><?= count($pendingDeptRequests) ?> department request<?= count($pendingDeptRequests) === 1 ? '' : 's' ?></strong>
+    awaiting HR department HOD approval for <?= htmlspecialchars($reqPlant) ?>:
+    <ul class="mb-0 mt-1 pl-3">
+        <?php foreach ($pendingDeptRequests as $r): ?>
+        <li><?= $r['request_type'] === 'edit' ? 'Update' : 'Add' ?> — <?= htmlspecialchars((string) $r['department_name']) ?></li>
+        <?php endforeach; ?>
+    </ul>
+</div>
+<?php endif; ?>
 
 <div class="card shadow-sm mb-4 lieo-dept-plant-pick">
     <div class="card-header bg-white font-weight-bold">Select plant</div>
@@ -344,7 +376,12 @@ require_once __DIR__ . '/../includes/header.php';
                     <td class="font-weight-bold"><?= htmlspecialchars($rowPlant) ?></td>
                     <td><?= htmlspecialchars($r['department_name']) ?></td>
                     <td><?= $r['is_hr'] === 't' ? '<span class="badge badge-success">HR</span>' : '' ?></td>
-                    <td><?= lieo_status_badge($r['status']) ?></td>
+                    <td>
+                        <?= lieo_status_badge($r['status']) ?>
+                        <?php if (isset($pendingDeptTargets[$deptId])): ?>
+                        <span class="badge badge-warning" title="Edit pending HR department HOD approval">Edit pending</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="text-nowrap">
                         <a href="<?= htmlspecialchars(lieo_admin_departments_url($rowPlant, $filterPlant, $deptId)) ?>"
                            class="btn btn-sm btn-outline-primary">Edit</a>

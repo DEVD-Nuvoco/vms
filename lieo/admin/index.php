@@ -95,7 +95,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="card shadow-sm">
             <div class="card-header bg-white font-weight-bold">Quick Actions</div>
             <div class="card-body">
-                <a href="approval_matrix.php" class="btn btn-lieo btn-block mb-2">Approval Matrix (HOD / N-1 / Security / Time Office)</a>
+                <a href="approval_matrix.php" class="btn btn-lieo btn-block mb-2">LIEO Users (HOD / N-1 / Security / Time Office)</a>
                 <a href="<?= htmlspecialchars(lieo_web_base()) ?>/login.php?add=manually" class="btn btn-outline-success btn-block mb-2">Add User (Manual)</a>
                 <a href="users_bulk_upload.php" class="btn btn-outline-success btn-block mb-2">Bulk Upload Users</a>
                 <a href="departments.php" class="btn btn-outline-secondary btn-block">Department Master</a>

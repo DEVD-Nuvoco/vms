@@ -21,8 +21,54 @@ if (isset($_GET['switch'])) {
         $_SESSION['lieo_plant'],
         $_SESSION['lieo_department'],
         $_SESSION['lieo_must_change_password'],
-        $_SESSION['lieo_mess']
+        $_SESSION['lieo_mess'],
+        $_SESSION['lieo_pick']
     );
+}
+
+// Shared mailbox (e.g. main gate): several people use one login — pick who is signing in.
+if (!empty($_SESSION['lieo_pick']) && lieo_is_logged_in()) {
+    $pick = $_SESSION['lieo_pick'];
+    $chosen = (string) ($_POST['pick_emp_code'] ?? '');
+    if ($chosen !== '' && isset($pick['people'][$chosen])) {
+        $_SESSION['lieo_emp_code'] = $chosen;
+        $_SESSION['lieo_user_name'] = $pick['people'][$chosen];
+        unset($_SESSION['lieo_pick']);
+        header('Location: ' . $pick['next']);
+        exit;
+    }
+    ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><?= htmlspecialchars(LIEO_APP_SHORT) ?> — Who is signing in?</title>
+    <link rel="stylesheet" href="../css/azia.css">
+    <style>
+        body { background: #f4f5f8; }
+        .lieo-login-card { max-width: 480px; margin: 60px auto; }
+        .btn-lieo { background: #42bb52; border-color: #42bb52; color: #fff; }
+    </style>
+</head>
+<body class="az-body">
+<div class="container lieo-login-card">
+    <div class="card shadow-sm"><div class="card-body p-4">
+        <h5 class="mb-1">Who is signing in?</h5>
+        <p class="text-muted small"><?= htmlspecialchars($_SESSION['lieo_user_email'] ?? '') ?> is shared by several users.</p>
+        <form method="post">
+            <?php foreach ($pick['people'] as $code => $name): ?>
+                <button type="submit" name="pick_emp_code" value="<?= htmlspecialchars($code) ?>"
+                        class="btn btn-lieo btn-block mb-2"><?= htmlspecialchars($name) ?> (<?= htmlspecialchars($code) ?>)</button>
+            <?php endforeach; ?>
+        </form>
+        <p class="text-center mt-3 mb-0"><a href="login.php?switch=1" class="small">Cancel</a></p>
+    </div></div>
+</div>
+</body>
+</html>
+    <?php
+    exit;
 }
 
 if (lieo_is_logged_in()) {
@@ -32,7 +78,6 @@ if (lieo_is_logged_in()) {
 
 $error = '';
 $lieoLocalDev = lieo_is_local_dev();
-$lieoTestAccounts = $lieoLocalDev ? lieo_local_test_accounts() : [];
 $postedEmail = trim($_POST['email'] ?? '');
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
@@ -47,9 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$user) {
             $why = lieo_login_diagnose($email, $password);
             if ($why === 'missing') {
-                $error = lieo_is_local_dev()
-                    ? 'No LIEO account for this email. Use a @local.test address from the list above, or a user from your imported DB.'
-                    : 'No LIEO account for this email. Assign the user in Approval Matrix first.';
+                $error = 'No LIEO account for this email. Assign the user in LIEO Users first.';
             } elseif ($why === 'inactive') {
                 $error = 'This LIEO account is inactive. Ask Admin to reactivate it.';
             } else {
@@ -72,11 +115,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['lieo_must_change_password'] = lieo_is_local_dev()
                 ? false
                 : (($user['must_change_password'] ?? 'f') === 't');
-            if ($_SESSION['lieo_must_change_password']) {
-                header('Location: change_password.php');
-            } else {
-                header('Location: ' . lieo_dashboard_url($user['role']));
+            $next = $_SESSION['lieo_must_change_password'] ? 'change_password.php' : lieo_dashboard_url($user['role']);
+            $people = lieo_matrix_people_by_email((string) $user['email']);
+            if (count($people) > 1) {
+                $_SESSION['lieo_pick'] = ['people' => $people, 'next' => $next];
+                $next = 'login.php';
             }
+            header('Location: ' . $next);
             exit;
         }
     }
@@ -116,44 +161,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <?php if ($lieoLocalDev): ?>
                 <div class="alert alert-warning small mb-3">
-                    <strong>Local testing</strong> — pick a test account below. Password is not required.
-                    These logins are built into the code and work even after a live DB dump.
+                    <strong>Local testing</strong> — enter the email of any user assigned in LIEO Users. Password is not required.
                 </div>
             <?php endif; ?>
 
-            <form method="post" autocomplete="off"<?= $lieoLocalDev ? ' novalidate' : '' ?> id="lieoLoginForm">
+            <form method="post" autocomplete="off" id="lieoLoginForm">
                 <div class="form-group">
                     <label>Email (Login ID)</label>
-                    <?php if ($lieoLocalDev): ?>
-                        <?php
-                        $postedIsTest = false;
-                        foreach ($lieoTestAccounts as $acc) {
-                            if (strcasecmp($acc['email'], $postedEmail) === 0) {
-                                $postedIsTest = true;
-                                break;
-                            }
-                        }
-                        $useOther = $postedEmail !== '' && !$postedIsTest;
-                        ?>
-                        <select id="lieoEmailSelect" class="form-control"<?= $useOther ? '' : ' name="email"' ?> required>
-                            <option value="">— Choose test account —</option>
-                            <?php foreach ($lieoTestAccounts as $acc): ?>
-                            <option value="<?= htmlspecialchars($acc['email']) ?>"
-                                <?= strcasecmp($acc['email'], $postedEmail) === 0 ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($acc['email']) ?> — <?= htmlspecialchars($acc['label']) ?>
-                            </option>
-                            <?php endforeach; ?>
-                            <option value="__other__" <?= $useOther ? 'selected' : '' ?>>Other — email from imported DB</option>
-                        </select>
-                        <input type="email" id="lieoEmailOther" class="form-control mt-2<?= $useOther ? '' : ' d-none' ?>"
-                               <?= $useOther ? 'name="email" required' : '' ?>
-                               placeholder="Enter email from imported database"
-                               value="<?= $useOther ? htmlspecialchars($postedEmail) : '' ?>">
-                        <small class="text-muted d-block mt-1">Select a role to switch users quickly — no copy/paste needed.</small>
-                    <?php else: ?>
-                        <input type="email" name="email" class="form-control" required
-                               value="<?= htmlspecialchars($postedEmail) ?>">
-                    <?php endif; ?>
+                    <input type="email" name="email" class="form-control" required
+                           value="<?= htmlspecialchars($postedEmail) ?>">
                 </div>
                 <div class="form-group">
                     <label>Password<?= $lieoLocalDev ? ' (optional on local)' : '' ?></label>
@@ -161,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                            <?= $lieoLocalDev ? '' : 'required' ?> autocomplete="current-password">
                     <small class="text-muted d-block text-center mt-2">
                         <?= $lieoLocalDev
-                            ? 'Local WAMP: leave password blank for test accounts.'
+                            ? 'Local WAMP: leave password blank.'
                             : 'LIEO password is separate from VMS. <br> Use the password from the credentials email.' ?>
                     </small>
                 </div>
@@ -176,52 +192,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
 </div>
-<?php if ($lieoLocalDev): ?>
-<script>
-(function () {
-    var form = document.getElementById('lieoLoginForm');
-    var select = document.getElementById('lieoEmailSelect');
-    var other = document.getElementById('lieoEmailOther');
-    if (!form || !select || !other) return;
-
-    function syncEmailField() {
-        var isOther = select.value === '__other__';
-        if (isOther) {
-            other.classList.remove('d-none');
-            other.setAttribute('name', 'email');
-            other.setAttribute('required', 'required');
-            select.removeAttribute('name');
-        } else {
-            other.classList.add('d-none');
-            other.removeAttribute('name');
-            other.removeAttribute('required');
-            if (select.value && select.value !== '__other__') {
-                select.setAttribute('name', 'email');
-            } else {
-                select.removeAttribute('name');
-            }
-        }
-    }
-
-    select.addEventListener('change', syncEmailField);
-    syncEmailField();
-
-    form.addEventListener('submit', function (e) {
-        syncEmailField();
-        if (select.value === '__other__') {
-            if (!other.value.trim()) {
-                e.preventDefault();
-                other.focus();
-            }
-            return;
-        }
-        if (!select.value) {
-            e.preventDefault();
-            select.focus();
-        }
-    });
-})();
-</script>
-<?php endif; ?>
 </body>
 </html>

@@ -19,7 +19,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <h2 class="lieo-title mb-2">Roles</h2>
 <p class="text-muted mb-4">
-    LIEO roles are fixed and view-only from here — Time Office no longer maintains role assignments (see Admin's Approval Matrix).
+    LIEO roles are fixed and view-only from here — Time Office no longer maintains role assignments (see Admin's LIEO Users).
     Chain: <strong>N-1 creates</strong> → <strong>HOD approves</strong> → <strong>Security</strong> closes at gate with a remark.
 </p>
 

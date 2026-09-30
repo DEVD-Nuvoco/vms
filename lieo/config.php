@@ -88,13 +88,6 @@ $LIEO_PLANTS = ['Nimbol', 'Arasmeta', 'Mejia', 'Jojobera'];
 
 $LIEO_DEPARTMENTS = ['Maintenance', 'Production', 'Projects', 'Electrical', 'Mechanical'];
 
-$LIEO_SHIFTS = [
-    'General (08:00–17:00)',
-    'Shift A (06:00–14:00)',
-    'Shift B (14:00–22:00)',
-    'Shift C (22:00–06:00)',
-];
-
 function lieo_is_logged_in(): bool
 {
     return !empty($_SESSION['lieo_role']) && !empty($_SESSION['lieo_user_id']);
@@ -411,7 +404,7 @@ function lieo_matrix_email_test(int $matrixId = 0): array
     $subject = LIEO_APP_SHORT . ' :: Email test (sample)';
     $body = 'Dear ' . htmlspecialchars($toName) . ',<br><br>'
         . 'This is a sample <strong>LIEO</strong> notification used for mail UI testing.<br><br>'
-        . 'Add an Approval Matrix assignment to test with a real role recipient.';
+        . 'Add a LIEO Users assignment to test with a real role recipient.';
     lieo_send_mail($toEmail, $toName, $subject, $body, [], [
         'context' => 'Email Test',
         'headline' => 'LIEO email test (sample)',
@@ -660,7 +653,7 @@ function lieo_send_mail(
     @sent_email([$toEmail], [$toName !== '' ? $toName : $toEmail], $cc, [], $subject, $body, null);
 }
 
-function lieo_send_credentials_email(string $toEmail, string $toName, string $password, bool $isResend = false, string $role = ''): void
+function lieo_send_credentials_email(string $toEmail, string $toName, string $password, bool $isResend = false, string $role = '', array $cc = []): void
 {
     $intro = $isResend
         ? 'Your login credentials for <strong>' . htmlspecialchars(LIEO_APP_NAME) . ' (' . htmlspecialchars(LIEO_APP_SHORT) . ')</strong> have been resent.'
@@ -673,7 +666,7 @@ function lieo_send_credentials_email(string $toEmail, string $toName, string $pa
         . 'Please use the button below to open the LIEO portal, then change your password after first login.';
 
     $roleLabel = $role !== '' ? lieo_role_label($role) : '';
-    lieo_send_mail($toEmail, $toName, $subject, $body, [], [
+    lieo_send_mail($toEmail, $toName, $subject, $body, $cc, [
         'context' => 'Login Credentials',
         'headline' => $isResend ? 'Login Credentials Resent' : 'New LIEO Login Created',
         'subhead' => 'Late IN / Early Out access credentials.',
@@ -692,7 +685,8 @@ function lieo_send_role_assigned_email(
     string $toName,
     string $role,
     string $plant = '',
-    string $department = ''
+    string $department = '',
+    array $cc = []
 ): void {
     $roleLabel = lieo_role_label($role);
     $subject = LIEO_APP_SHORT . ' :: Role assigned — ' . $roleLabel;
@@ -702,7 +696,7 @@ function lieo_send_role_assigned_email(
         . 'Use your existing LIEO login to sign in. If you forgot your password, ask Admin / Time Office to resend credentials.';
 
     $plantDept = trim($plant . ($department !== '' && $department !== 'All' ? ' / ' . $department : ''));
-    lieo_send_mail($toEmail, $toName, $subject, $body, [], [
+    lieo_send_mail($toEmail, $toName, $subject, $body, $cc, [
         'context' => 'Role Assignment',
         'headline' => 'Role assigned: ' . $roleLabel,
         'subhead' => 'Late IN / Early Out role assignment notification.',
@@ -993,7 +987,7 @@ function lieo_notify_reactivation_requested(array $contractor): void
             . '<strong>Type:</strong> ' . htmlspecialchars((string) ($contractor['contractor_type'] ?? '')) . '<br>'
             . '<strong>Deactivated at:</strong> ' . htmlspecialchars($contractor['deactivated_at'] ?? '—') . '<br>'
             . '<strong>Reason:</strong> ' . htmlspecialchars($contractor['deactivation_reason'] ?? '—') . '<br><br>'
-            . 'Please sign in to LIEO → Reactivation Requests to approve or reject.';
+            . 'Please sign in to LIEO → Contractor Reactivation Requests to approve or reject.';
         lieo_send_mail($to['email'], $to['name'], $subject, $body, $cc, [
             'context' => 'Contractor Reactivation',
             'headline' => 'Contractor reactivation requested',
@@ -1072,6 +1066,62 @@ function lieo_notify_user_request_submitted(array $request): void
             ['label' => 'Plant / Dept', 'value' => trim($plant . ' / ' . ($request['department'] ?? '')) ?: '—'],
         ],
     ]);
+}
+
+function lieo_notify_department_request_submitted(array $request): void
+{
+    $plant = lieo_ams_canonical_plant($request['plant'] ?? '');
+    $hrDept = $plant !== '' ? lieo_hr_department_name($plant) : null;
+    $to = $hrDept !== null ? lieo_matrix_notify_recipient($plant, $hrDept, 'hod') : null;
+    if (!$to) {
+        return;
+    }
+    $typeLabel = $request['request_type'] === 'edit' ? 'Update' : 'Add';
+    $deptName = (string) ($request['department_name'] ?? '');
+    $subject = LIEO_APP_SHORT . ' :: Department ' . strtolower($typeLabel) . ' request pending — ' . $deptName;
+    $body = 'Dear ' . htmlspecialchars($to['name']) . ',<br><br>'
+        . 'Admin has submitted an <strong>' . htmlspecialchars($typeLabel) . '</strong> request for department '
+        . '<strong>' . htmlspecialchars($deptName) . '</strong> (plant ' . htmlspecialchars($plant) . '), awaiting your approval.<br><br>'
+        . 'Please sign in to LIEO → Department Requests to review it.';
+    lieo_send_mail($to['email'], $to['name'], $subject, $body, [], [
+        'context' => 'Department Request',
+        'headline' => $typeLabel . ' request pending — ' . $deptName,
+        'subhead' => 'HR department HOD decision required.',
+        'to_role' => 'HOD',
+        'cards' => [
+            ['label' => 'Department', 'value' => $deptName],
+            ['label' => 'Plant', 'value' => $plant !== '' ? $plant : '—'],
+            ['label' => 'Type', 'value' => $typeLabel],
+        ],
+    ]);
+}
+
+/** Notify the requesting Admin that the HR-department HOD decided a department request. */
+function lieo_notify_department_request_decided(array $request, string $decision): void
+{
+    $requestedBy = lieo_user_notify_recipient((int) ($request['requested_by'] ?? 0));
+    $to = $requestedBy ? [$requestedBy] : lieo_list_role_notify_recipients('admin');
+    $deptName = (string) ($request['department_name'] ?? '');
+    $ok = $decision === 'Approved';
+    $subject = LIEO_APP_SHORT . ' :: Department request ' . strtolower($decision) . ' — ' . $deptName;
+    foreach ($to as $row) {
+        $body = 'Dear ' . htmlspecialchars($row['name']) . ',<br><br>'
+            . 'Your request for department <strong>' . htmlspecialchars($deptName) . '</strong> ('
+            . htmlspecialchars((string) ($request['plant'] ?? '')) . ') was <strong>'
+            . htmlspecialchars(strtolower($decision)) . '</strong> by the HR department HOD.'
+            . (!empty($request['decision_remark']) ? '<br><strong>Remark:</strong> ' . htmlspecialchars($request['decision_remark']) : '');
+        lieo_send_mail($row['email'], $row['name'], $subject, $body, [], [
+            'context' => 'Department Request',
+            'headline' => 'Department request ' . strtolower($decision),
+            'subhead' => 'HR department HOD decision completed.',
+            'to_role' => 'Admin',
+            'cards' => [
+                ['label' => 'Department', 'value' => $deptName],
+                ['label' => 'Plant', 'value' => (string) ($request['plant'] ?? '—')],
+                ['label' => 'Decision', 'value' => $ok ? 'Approved' : 'Rejected'],
+            ],
+        ]);
+    }
 }
 
 /** Notify the requesting Admin that the HR-department HOD decided a user request. */

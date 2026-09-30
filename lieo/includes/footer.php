@@ -196,17 +196,21 @@ if ($lieoTestMails):
 
 <style>
 #lieoDialogModal {
-    z-index: 2000 !important;
+    z-index: 3000 !important;
 }
 #lieoDialogModal .modal-dialog,
 #lieoDialogModal .modal-content {
     pointer-events: auto;
     position: relative;
-    z-index: 2001;
+    z-index: 3001;
 }
 .modal-backdrop.lieo-dialog-backdrop,
 .modal-backdrop.show:last-of-type {
     z-index: 1990 !important;
+}
+/* Alert/confirm dialog can open on top of another modal (e.g. Approval Matrix popup) and dims it too. */
+.modal-backdrop.show.lieo-dialog-backdrop:last-of-type {
+    z-index: 2990 !important;
 }
 .lieo-dialog-content { border-radius: 14px; overflow: hidden; }
 .lieo-dialog-icon {
@@ -287,7 +291,9 @@ if ($lieoTestMails):
         function showDialog($m) {
             ensureDialogOnBody();
             // Drop stale backdrops before opening
-            $('.modal-backdrop').remove();
+            if (!$('.modal.show').length) {
+                $('.modal-backdrop').remove();
+            }
             $m.css('z-index', 2000);
             $m.modal({ backdrop: 'static', keyboard: true, show: true });
             setTimeout(function () {

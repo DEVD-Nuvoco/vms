@@ -99,15 +99,6 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <h2 class="lieo-title mb-2">Approval Matrix</h2>
-<p class="text-muted mb-4">
-    <?php if ($_SESSION['lieo_role'] === 'admin'): ?>
-        Admin assigns <strong>Time Office</strong> only (department-wise). Time Office maintains Section Incharge, N-1, HOD, Security and HR Head.
-    <?php else: ?>
-        Assign <strong>Section Incharge</strong> and <strong>N-1</strong> by department, and <strong>HOD / Security / HR Head</strong> once per plant.
-        You cannot assign Time Office. Flow: Section Incharge creates → Time Office → N-1 → HOD → Security at gate.
-    <?php endif; ?>
-    Saving creates or updates the LIEO login — credentials are emailed; the user must change password on first sign-in.
-</p>
 
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-white font-weight-bold text-success"><?= $editRow ? 'Edit Assignment' : 'Add Role Assignment' ?></div>

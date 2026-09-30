@@ -77,7 +77,6 @@ require_once __DIR__ . '/../includes/header.php';
 <h2 class="lieo-title mb-2"><?= htmlspecialchars(lieo_step_label($role)) ?> Approvals</h2>
 <p class="text-muted mb-4">
     Late IN / Early Out requests waiting for your action. Chain: N-1 creates → HOD approves → Security closes at gate.
-    <a href="history.php">View my history (full remark trail)</a>
 </p>
 
 <?php if (count($hodDepts) > 1): ?>

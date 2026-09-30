@@ -16,10 +16,11 @@ $lieoRoot = lieo_root_prefix();
 
 $adminNav = [
     'dashboard'  => ['label' => 'Dashboard',         'url' => lieo_nav_url('admin', 'index.php'),              'icon' => 'typcn-chart-area-outline'],
-    'matrix'     => ['label' => 'Approval Matrix',   'url' => lieo_nav_url('admin', 'approval_matrix.php'),    'icon' => 'typcn-flow-merge'],
+    'matrix'     => ['label' => 'LIEO Users',        'url' => lieo_nav_url('admin', 'approval_matrix.php'),    'icon' => 'typcn-flow-merge'],
     'departments'=> ['label' => 'Department Master', 'url' => lieo_nav_url('admin', 'departments.php'),        'icon' => 'typcn-th-large'],
+    'shifts'     => ['label' => 'Shift Master',       'url' => lieo_nav_url('admin', 'shifts.php'),             'icon' => 'typcn-time'],
     'contractors'=> ['label' => 'Contractor Master', 'url' => lieo_nav_url('admin', 'contractors.php'),        'icon' => 'typcn-briefcase'],
-    'notify'     => ['label' => 'Notification Mail', 'url' => lieo_nav_url('admin', 'notification_mail.php'), 'icon' => 'typcn-mail'],
+    'notify'     => ['label' => 'Notification Configuration', 'url' => lieo_nav_url('admin', 'notification_mail.php'), 'icon' => 'typcn-mail'],
 ];
 
 /** Time Office is view-only/tracking now — matrix, departments, contractors and notify moved to Admin. */
@@ -27,7 +28,6 @@ $timeofficeNav = [
     'dashboard'  => ['label' => 'Dashboard',              'url' => lieo_nav_url('timeoffice', 'index.php'),              'icon' => 'typcn-chart-area-outline'],
     'list'       => ['label' => 'Application Tracking',   'url' => lieo_nav_url('timeoffice', 'applications.php'),       'icon' => 'typcn-th-list'],
     'users'      => ['label' => 'Roles',                  'url' => lieo_nav_url('timeoffice', 'users.php'),              'icon' => 'typcn-group-outline'],
-    'history'    => ['label' => 'My History',             'url' => lieo_nav_url('timeoffice', 'history.php'),            'icon' => 'typcn-time'],
 ];
 
 $approverNav = [
@@ -45,18 +45,17 @@ if ($role === 'n1' && $secondaryRole === 'security') {
     $approverNav['attendance'] = ['label' => 'Gate Attendance', 'url' => lieo_nav_url('security', 'attendance.php'), 'icon' => 'typcn-arrow-forward-outline'];
 }
 $approverNav['list'] = ['label' => 'Application Tracking', 'url' => lieo_nav_url($role, 'applications.php'), 'icon' => 'typcn-th-list'];
-$approverNav['history'] = ['label' => 'My History', 'url' => lieo_nav_url($role, 'history.php'), 'icon' => 'typcn-time'];
 // HR department HOD picks up the retired HR Head role's job too (contractor
-// reactivation approval), plus admin user-request approval and plant users.
+// reactivation approval), plus admin user-request and department-request approval.
 if ($role === 'hod' && lieo_is_hr_hod((string) ($_SESSION['lieo_emp_code'] ?? ''), lieo_ams_canonical_plant($userPlant))) {
-    $approverNav['user_requests'] = ['label' => 'User Approval', 'url' => lieo_nav_url('hod', 'user_requests.php'), 'icon' => 'typcn-user-add-outline'];
-    $approverNav['plant_users'] = ['label' => 'Plant Users', 'url' => lieo_nav_url('hod', 'plant_users.php'), 'icon' => 'typcn-group-outline'];
-    $approverNav['reactivation'] = ['label' => 'Reactivation Requests', 'url' => lieo_nav_url('hod', 'reactivation.php'), 'icon' => 'typcn-refresh'];
+    $approverNav['user_requests'] = ['label' => 'User Update Request', 'url' => lieo_nav_url('hod', 'user_requests.php'), 'icon' => 'typcn-user-add-outline'];
+    $approverNav['department_requests'] = ['label' => 'Department Requests', 'url' => lieo_nav_url('hod', 'department_requests.php'), 'icon' => 'typcn-th-large'];
+    $approverNav['reactivation'] = ['label' => 'Contractor Reactivation Requests', 'url' => lieo_nav_url('hod', 'reactivation.php'), 'icon' => 'typcn-refresh'];
 }
 
 $securityNav = [
-    'attendance' => ['label' => 'Gate Attendance', 'url' => lieo_nav_url('security', 'attendance.php'), 'icon' => 'typcn-arrow-forward-outline'],
-    'history'    => ['label' => 'My History',      'url' => lieo_nav_url('security', 'history.php'),    'icon' => 'typcn-time'],
+    'attendance' => ['label' => 'Gate Attendance',      'url' => lieo_nav_url('security', 'attendance.php'),   'icon' => 'typcn-arrow-forward-outline'],
+    'list'       => ['label' => 'Application Tracking', 'url' => lieo_nav_url('security', 'applications.php'), 'icon' => 'typcn-th-list'],
 ];
 if ($role === 'security' && $secondaryRole === 'n1') {
     // Also N-1 for their department — let them create applications too.

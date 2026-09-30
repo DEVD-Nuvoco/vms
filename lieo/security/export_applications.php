@@ -1,9 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
-lieo_require_role(['timeoffice']);
-
-$pageTitle = 'Application Tracking';
-$activeNav = 'list';
+lieo_require_role(['security']);
 
 $filters = [
     'date_from' => $_GET['date_from'] ?? '',
@@ -15,6 +12,4 @@ $filters = [
 ];
 $list = lieo_list_applications(lieo_apply_session_plant_scope(array_filter($filters)));
 
-require_once __DIR__ . '/../includes/header.php';
-require_once __DIR__ . '/../includes/applications_track.php';
-require_once __DIR__ . '/../includes/footer.php';
+require_once __DIR__ . '/../includes/applications_export.php';

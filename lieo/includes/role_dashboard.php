@@ -20,25 +20,21 @@ $pendingUrl = match ($role) {
     default => 'applications.php',
 };
 $trackUrl = 'applications.php';
-$historyUrl = 'history.php';
 
 $quickActions = [];
 if ($role === 'timeoffice') {
     $quickActions = [
         ['label' => 'Application Tracking', 'url' => 'applications.php', 'icon' => 'typcn-th-list', 'primary' => true],
-        ['label' => 'My History', 'url' => 'history.php', 'icon' => 'typcn-time'],
     ];
 } elseif ($role === 'n1') {
     $quickActions = [
         ['label' => 'Create Application', 'url' => 'create_application.php', 'icon' => 'typcn-document-add', 'primary' => true],
         ['label' => 'Application Tracking', 'url' => 'applications.php', 'icon' => 'typcn-th-list'],
-        ['label' => 'My History', 'url' => 'history.php', 'icon' => 'typcn-time'],
     ];
 } elseif ($role === 'hod') {
     $quickActions = [
         ['label' => 'Pending Approvals', 'url' => 'pending.php', 'icon' => 'typcn-tick-outline', 'primary' => true, 'badge' => (int) ($stats['pending_mine'] ?? 0)],
         ['label' => 'Application Tracking', 'url' => 'applications.php', 'icon' => 'typcn-th-list'],
-        ['label' => 'My History', 'url' => 'history.php', 'icon' => 'typcn-time'],
     ];
     if (function_exists('lieo_is_hr_hod') && lieo_is_hr_hod((string) ($_SESSION['lieo_emp_code'] ?? ''), $plant)) {
         // Admin's HOD/N-1/Security role-assignment requests — a separate
@@ -46,7 +42,8 @@ if ($role === 'timeoffice') {
         // own badge or a pending one is easy to miss on this dashboard.
         $pendingUserRequests = function_exists('lieo_list_user_requests') ? count(lieo_list_user_requests($plant, 'Pending')) : 0;
         $quickActions[] = ['label' => 'User Approval', 'url' => 'user_requests.php', 'icon' => 'typcn-user-add-outline', 'badge' => $pendingUserRequests];
-        $quickActions[] = ['label' => 'Plant Users', 'url' => 'plant_users.php', 'icon' => 'typcn-group-outline'];
+        $pendingDeptRequests = function_exists('lieo_list_department_requests') ? count(lieo_list_department_requests($plant, 'Pending')) : 0;
+        $quickActions[] = ['label' => 'Department Requests', 'url' => 'department_requests.php', 'icon' => 'typcn-th-large', 'badge' => $pendingDeptRequests];
     }
 }
 if ($role === 'n1') {
@@ -252,7 +249,6 @@ $workflowHint = match ($role) {
         </div>
         <p class="text-muted small mb-0 mt-2">
             Security closes at gate with mandatory remark and actual enter/leave date-time.
-            <a href="<?= htmlspecialchars($historyUrl) ?>">View your history</a>
         </p>
     </div>
 </div>

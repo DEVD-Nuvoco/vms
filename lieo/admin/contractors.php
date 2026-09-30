@@ -50,8 +50,9 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <div class="form-group col-md-4">
                     <label>Contractor Mobile Number *</label>
-                    <input type="text" name="contractor_mobile" class="form-control" required
+                    <input type="text" name="contractor_mobile" class="form-control js-mobile" required inputmode="numeric" maxlength="10" autocomplete="off"
                            value="<?= htmlspecialchars($editRow['contractor_mobile'] ?? '') ?>">
+                    <div class="invalid-feedback"></div>
                 </div>
             </div>
             <div class="form-row">
@@ -70,13 +71,37 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <div class="form-group col-md-4">
                     <label>Supervisor Mobile Number *</label>
-                    <input type="text" name="supervisor_mobile" class="form-control" required
+                    <input type="text" name="supervisor_mobile" class="form-control js-mobile" required inputmode="numeric" maxlength="10" autocomplete="off"
                            value="<?= htmlspecialchars($editRow['supervisor_mobile'] ?? '') ?>">
+                    <div class="invalid-feedback"></div>
                 </div>
             </div>
             <button type="submit" class="btn btn-lieo"><?= $editRow ? 'Update Contractor' : 'Save Contractor' ?></button>
             <?php if ($editRow): ?><a href="contractors.php" class="btn btn-link">Cancel edit</a><?php endif; ?>
         </form>
+        <script>
+        (function () {
+            var fields = document.querySelectorAll('.js-mobile');
+            function check(el, final) {
+                el.value = el.value.replace(/\D+/g, '').slice(0, 10);
+                var n = el.value.length, msg = '';
+                if (n === 0) { msg = final ? 'Mobile number is required.' : ''; }
+                else if (n < 10 && final) { msg = 'Enter a 10-digit mobile number (' + n + ' entered).'; }
+                el.classList.toggle('is-invalid', !!msg);
+                el.nextElementSibling.textContent = msg;
+                return !msg && n === 10;
+            }
+            fields.forEach(function (el) {
+                el.addEventListener('input', function () { check(el, false); });
+                el.addEventListener('blur', function () { check(el, true); });
+            });
+            fields[0].form.addEventListener('submit', function (e) {
+                var ok = true;
+                fields.forEach(function (el) { if (!check(el, true)) ok = false; });
+                if (!ok) { e.preventDefault(); document.querySelector('.js-mobile.is-invalid').focus(); }
+            });
+        })();
+        </script>
     </div>
 </div>
 

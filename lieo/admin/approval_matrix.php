@@ -8,7 +8,7 @@ if (!defined('LIEO_MATRIX_PAGE')) {
     $lieoMatrixLockPlant = false;
 }
 
-$pageTitle = 'Approval Matrix';
+$pageTitle = 'LIEO Users';
 $activeNav = 'matrix';
 global $LIEO_APPROVAL_STEPS, $LIEO_MATRIX_PLANT_ROLES;
 
@@ -81,6 +81,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['lieo_mess'] = 'Removal request submitted for HR department HOD approval.';
             } else {
                 lieo_delete_matrix_rule($id);
+                if ($row) {
+                    lieo_notify_matrix_removed($row);
+                }
                 $_SESSION['lieo_mess'] = 'Rule deactivated.';
             }
         } elseif ($action === 'transfer_hod') {
@@ -114,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['lieo_mess_type'] = 'danger';
             }
         } elseif ($action === 'resend') {
-            $result = lieo_resend_matrix_credentials((int) ($_POST['id'] ?? 0));
+            $result = lieo_resend_matrix_credentials((int) ($_POST['id'] ?? 0), true);
             $_SESSION['lieo_mess'] = $result['message'] ?? ($result['ok'] ? 'Credentials resent.' : 'Resend failed.');
         } elseif ($action === 'email_test') {
             // Local WAMP only — never expose email test on live server.
@@ -223,7 +226,7 @@ $lieoDeptMasterBase = $_SESSION['lieo_role'] === 'admin'
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<h2 class="lieo-title mb-2">Approval Matrix</h2>
+<h2 class="lieo-title mb-2">LIEO Users</h2>
 <p class="text-muted mb-4">
     Admin assigns <strong>HOD</strong> and <strong>N-1</strong> by department (one HOD per department; N-1 can be multiple per department),
     and <strong>Security</strong> once per plant (must be an HR department employee, same as Time Office).
@@ -233,11 +236,19 @@ require_once __DIR__ . '/../includes/header.php';
     Once a request is approved, the LIEO login is created/updated and credentials are emailed; the user must change password on first sign-in.
 </p>
 
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-white font-weight-bold text-success">
+<div class="d-flex justify-content-end mb-3">
+    <button type="button" class="btn btn-lieo" id="matrixAddBtn">+ Add Role Assignment</button>
+</div>
+
+<div class="modal fade" id="matrixModal" tabindex="-1" role="dialog" aria-hidden="true" data-open="<?= $editRow ? '1' : '0' ?>" data-list-url="approval_matrix.php<?= $viewPlant !== '' ? ('?plant=' . rawurlencode($viewPlant)) : '' ?>">
+<div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+    <div class="modal-header py-2">
+        <h5 class="modal-title font-weight-bold text-success">
         <?= $transferId ? 'Replace HOD — ' . htmlspecialchars($editDept) . ' (' . htmlspecialchars($editPlant) . ')' : ($editRow ? 'Edit Assignment' : 'Add Role Assignment') ?>
+        </h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
     </div>
-    <div class="card-body">
+    <div class="modal-body">
         <?php if ($transferId): ?>
         <p class="small text-muted">Pick the new HOD below. The outgoing HOD's record is kept — see the transfer log — and any pending application for this department becomes actionable by the new HOD immediately.</p>
         <?php endif; ?>
@@ -247,7 +258,7 @@ require_once __DIR__ . '/../includes/header.php';
             <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
 
             <div class="form-row">
-                <div class="form-group col-md-4">
+                <div class="form-group col-md-6">
                     <label>Plant * <small class="text-muted">(search AMS)</small></label>
                     <input type="text" id="plantSearch" class="form-control" placeholder="Type plant e.g. JCP"
                            value="<?= htmlspecialchars($editPlant) ?>" autocomplete="off" required
@@ -255,7 +266,18 @@ require_once __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="plant" id="plant" value="<?= htmlspecialchars($editPlant) ?>" required>
                     <div id="plantResults" class="list-group mt-1" style="max-height:180px;overflow:auto;display:none;position:relative;z-index:30;"></div>
                 </div>
-                <div class="form-group col-md-4" id="departmentGroup">
+                <div class="form-group col-md-6">
+                    <label>Role *</label>
+                    <select name="approval_step" id="approval_step" class="form-control" required <?= $transferId ? 'disabled' : '' ?>>
+                        <?php foreach ($lieoMatrixSteps as $key => $label): ?>
+                        <option value="<?= $key ?>" <?= (($editRow['approval_step'] ?? '') === $key) ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($label) ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="text-muted" id="roleHint">Time Office and Security: pick plant only — one assignee per plant (HR department employee only). HOD: one per department (N-1: multiple allowed).</small>
+                </div>
+                <div class="form-group col-md-12" id="departmentGroup">
                     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap">
                         <label class="mb-0">LIEO Department *</label>
                         <span class="text-nowrap">
@@ -282,26 +304,14 @@ require_once __DIR__ . '/../includes/header.php';
                         <div id="lieoAllDeptsList" class="lieo-all-depts-list"></div>
                     </div>
                     <small class="text-muted d-block mt-1">
-                        AMS departments are included automatically. Use <strong>Add Department(s)</strong> for extras.
-                        <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoDeptMasterLink">Manage in Department Master</a>
+                        Departments come from Department Master. <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoDeptMasterLink">Manage in Department Master</a>
                     </small>
                     <input type="hidden" name="department" id="departmentAll" value="All" disabled>
-                </div>
-                <div class="form-group col-md-4">
-                    <label>Role *</label>
-                    <select name="approval_step" id="approval_step" class="form-control" required <?= $transferId ? 'disabled' : '' ?>>
-                        <?php foreach ($lieoMatrixSteps as $key => $label): ?>
-                        <option value="<?= $key ?>" <?= (($editRow['approval_step'] ?? '') === $key) ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($label) ?>
-                        </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <small class="text-muted" id="roleHint">Time Office and Security: pick plant only — one assignee per plant (HR department employee only). HOD: one per department (N-1: multiple allowed).</small>
                 </div>
             </div>
 
             <div class="form-row">
-                <div class="form-group col-md-8">
+                <div class="form-group col-md-12">
                     <label>Employee (AMS) *</label>
                     <div id="empPickerCard" class="lieo-emp-picker <?= !empty($editRow['emp_code']) ? 'has-selection' : '' ?>">
                         <div id="empPickerSelected" class="lieo-emp-picker-selected" <?= empty($editRow['emp_code']) ? 'style="display:none"' : '' ?>>
@@ -313,32 +323,36 @@ require_once __DIR__ . '/../includes/header.php';
                                 <div class="lieo-emp-name" id="empDisplayName"><?= htmlspecialchars($editRow['emp_name'] ?? '') ?></div>
                                 <div class="lieo-emp-code" id="empDisplayCode"><?= htmlspecialchars($editRow['emp_code'] ?? '') ?></div>
                                 <div class="lieo-emp-email" id="empDisplayEmail"><?= htmlspecialchars($editRow['emp_email'] ?? '') ?></div>
-                                <div class="lieo-emp-ams-dept text-muted small" id="empDisplayAmsDept" style="display:none"></div>
                             </div>
                             <button type="button" class="btn btn-sm btn-link text-danger px-1" id="empClearBtn" title="Clear selection">Clear</button>
                         </div>
-                        <button type="button" class="lieo-emp-open-btn" id="empBrowseBtn"
-                                <?= $editPlant === '' ? 'disabled' : '' ?>>
+                        <button type="button" class="lieo-emp-open-btn" id="empBrowseBtn">
                             <span class="lieo-emp-open-icon" aria-hidden="true"><i class="typcn typcn-zoom-outline"></i></span>
                             <span class="lieo-emp-open-text" id="empBrowseLabel">
                                 <?= !empty($editRow['emp_code']) ? 'Change employee' : 'Click here to search &amp; select employee' ?>
                             </span>
                         </button>
+                        <div id="empExistingNote" class="alert alert-warning py-2 px-3 mt-2 mb-0 small" style="display:none;"></div>
                         <small class="text-muted d-block mt-1" id="empCountHint">Select plant first, then pick an employee (all AMS departments for that plant).</small>
                     </div>
                     <input type="hidden" name="emp_code" id="emp_code" required value="<?= htmlspecialchars($editRow['emp_code'] ?? '') ?>">
                     <input type="hidden" name="emp_name" id="emp_name" required value="<?= htmlspecialchars($editRow['emp_name'] ?? '') ?>">
-                    <input type="hidden" name="emp_email" id="emp_email" value="<?= htmlspecialchars($editRow['emp_email'] ?? '') ?>">
+                    <div id="loginEmailGroup" class="mt-2" style="display:none;">
+                        <label class="small font-weight-bold mb-1">Login email <span class="text-muted font-weight-normal">(Security only — employee code and name stay the same; the login email can be changed)</span></label>
+                        <input type="email" name="emp_email" id="emp_email" class="form-control" placeholder="e.g. maingate.plant@nuvoco.com"
+                               value="<?= htmlspecialchars($editRow['emp_email'] ?? '') ?>">
+                    </div>
                 </div>
-                <div class="form-group col-md-4 d-flex align-items-end">
-                    <div class="w-100">
-                        <button type="submit" class="btn btn-lieo btn-block"><?= $transferId ? 'Submit Replacement' : 'Save & Provision Login' ?></button>
-                        <?php if ($editRow): ?><a href="approval_matrix.php<?= $viewPlant !== '' ? ('?plant=' . rawurlencode($viewPlant)) : '' ?>" class="btn btn-link btn-block">Cancel</a><?php endif; ?>
+                <div class="form-group col-md-12 mb-0">
+                    <div class="d-flex justify-content-end align-items-center">
+                        <button type="submit" class="btn btn-lieo px-4"><?= $transferId ? 'Submit Replacement' : 'Save & Provision Login' ?></button>
+                        <?php if ($editRow): ?><a href="approval_matrix.php<?= $viewPlant !== '' ? ('?plant=' . rawurlencode($viewPlant)) : '' ?>" class="btn btn-link ml-2">Cancel</a><?php endif; ?>
                     </div>
                 </div>
             </div>
         </form>
     </div>
+</div></div>
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -392,9 +406,8 @@ require_once __DIR__ . '/../includes/header.php';
             <tbody>
                 <?php foreach ($matrixRows as $row): ?>
                 <?php
-                    $canResend = !empty($row['lieo_user_id'])
-                        && ($row['user_status'] ?? '') === 'Active'
-                        && ($row['must_change_password'] ?? 'f') === 't';
+                    // Reset is offered on every row; with no login yet it creates one.
+                    $canResend = empty($row['lieo_user_id']) || ($row['user_status'] ?? '') === 'Active';
                 ?>
                 <?php
                     $pendingReq = $pendingByMatrixId[(int) $row['matrix_id']] ?? null;
@@ -436,13 +449,13 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php endif; ?>
                         <?php if ($canResend): ?>
                         <form method="post" class="d-inline"
-                              data-lieo-confirm="Resend login credentials email to <?= htmlspecialchars($row['emp_email'], ENT_QUOTES) ?>?"
-                              data-lieo-confirm-title="Resend credentials"
-                              data-lieo-confirm-ok="Resend">
+                              data-lieo-confirm="Reset the password for <?= htmlspecialchars($row['emp_email'], ENT_QUOTES) ?>? Their current password stops working and a new temporary password is emailed; they must change it at next sign-in."
+                              data-lieo-confirm-title="Reset password"
+                              data-lieo-confirm-ok="Reset">
                             <input type="hidden" name="action" value="resend">
                             <input type="hidden" name="id" value="<?= (int)$row['matrix_id'] ?>">
                             <?php if ($viewPlant !== ''): ?><input type="hidden" name="view_plant" value="<?= htmlspecialchars($viewPlant) ?>"><?php endif; ?>
-                            <button type="submit" class="btn btn-sm btn-outline-success" title="Resend credentials email">Resend</button>
+                            <button type="submit" class="btn btn-sm btn-outline-success" title="Reset password and email a new temporary one">Reset</button>
                         </form>
                         <?php endif; ?>
                         <form method="post" class="d-inline"
@@ -576,19 +589,27 @@ require_once __DIR__ . '/../includes/header.php';
 .lieo-emp-row-email { font-size: 12px; color: #64748b; }
 .lieo-emp-ams-dept { font-size: 12px; margin-top: 2px; }
 .lieo-emp-row-dept { font-size: 12px; color: #475569; }
-#lieoEmpBrowseModal { z-index: 2000 !important; }
+#lieoEmpBrowseModal { z-index: 2100 !important; }
 #lieoEmpBrowseModal .modal-dialog,
 #lieoEmpBrowseModal .modal-content {
     pointer-events: auto;
     position: relative;
+    z-index: 2101;
+}
+#matrixModal { z-index: 2000 !important; }
+#matrixModal #department:disabled { background-color: #fff; pointer-events: none; }
+#matrixModal .modal-dialog,
+#matrixModal .modal-content {
+    pointer-events: auto;
+    position: relative;
     z-index: 2001;
 }
-#lieoAddDeptModal { z-index: 2000 !important; }
+#lieoAddDeptModal { z-index: 2100 !important; }
 #lieoAddDeptModal .modal-dialog,
 #lieoAddDeptModal .modal-content {
     pointer-events: auto;
     position: relative;
-    z-index: 2001;
+    z-index: 2101;
 }
 .lieo-add-dept-hint { font-size: .8125rem; color: #64748b; }
 .lieo-add-dept-result { font-size: .8125rem; max-height: 120px; overflow: auto; }
@@ -683,14 +704,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <button type="button" class="close" id="lieoAddDeptClose" aria-label="Close"><span>&times;</span></button>
             </div>
             <div class="modal-body">
-                <div class="lieo-add-dept-ams-ref" id="lieoAddDeptAmsRef" title="Click to expand/collapse">
-                    <h6>AMS departments on this plant <span id="lieoAddDeptAmsCount" class="text-muted font-weight-normal"></span>
-                        <small class="text-muted font-weight-normal">(click to show all)</small></h6>
-                    <div id="lieoAddDeptAmsChips" class="lieo-add-dept-ams-chips text-muted small">Loading…</div>
-                </div>
                 <p class="lieo-add-dept-hint mb-2">
-                    These AMS names are already in the LIEO dropdown. Add only names that are <strong>not</strong> listed above.
-                    Full edit/deactivate is in <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoAddDeptMasterLink">Department Master</a>.
+                    Departments listed in the dropdown come only from Department Master. Add new names here, or manage them (edit/deactivate) in <a href="<?= htmlspecialchars($lieoDeptMasterBase) ?>" id="lieoAddDeptMasterLink">Department Master</a>.
                 </p>
                 <label for="lieoAddDeptNames" class="font-weight-bold small">Extra department name(s)</label>
                 <textarea id="lieoAddDeptNames" class="form-control" rows="4"
@@ -731,12 +746,11 @@ require_once __DIR__ . '/../includes/header.php';
                             <tr>
                                 <th style="width:110px;">Code</th>
                                 <th>Name / Email</th>
-                                <th style="width:160px;">AMS Dept</th>
                                 <th style="width:90px;"></th>
                             </tr>
                         </thead>
                         <tbody id="empModalBody">
-                            <tr><td colspan="4" class="text-muted text-center py-4">Loading employees…</td></tr>
+                            <tr><td colspan="3" class="text-muted text-center py-4">Loading employees…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -824,7 +838,6 @@ require_once __DIR__ . '/../includes/header.php';
             }
         }
         if ($ && $.fn.modal && $modal && $modal.length) {
-            $('.modal-backdrop').remove();
             $modal.modal({ backdrop: true, keyboard: true, show: true });
             setTimeout(function () {
                 $('.modal-backdrop').last().css('z-index', 1990);
@@ -853,8 +866,12 @@ require_once __DIR__ . '/../includes/header.php';
             $modalEl.style.display = 'none';
             $modalEl.setAttribute('aria-hidden', 'true');
         }
-        document.body.classList.remove('modal-open');
-        document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+        if (!document.querySelector('#matrixModal.show')) {
+            document.body.classList.remove('modal-open');
+            document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+        } else {
+            document.body.classList.add('modal-open');
+        }
     }
 
     function deptMasterUrl(plant) {
@@ -870,47 +887,15 @@ require_once __DIR__ . '/../includes/header.php';
         });
     }
 
-    function loadAmsDeptRef(plant) {
-        var $chips = document.getElementById('lieoAddDeptAmsChips');
-        var $count = document.getElementById('lieoAddDeptAmsCount');
-        if (!$chips) return;
-        $chips.innerHTML = '<span class="text-muted">Loading…</span>';
-        if ($count) $count.textContent = '';
-        if (!plant) {
-            $chips.innerHTML = '<span class="text-muted">Select a plant first.</span>';
-            return;
-        }
-        fetch('../api/ams_lookup.php?type=ams_departments&plant=' + encodeURIComponent(plant))
-            .then(function (r) { return r.json(); })
-            .then(function (rows) {
-                rows = rows || [];
-                if ($count) {
-                    $count.textContent = rows.length ? ('(' + rows.length + ')') : '';
-                }
-                if (!rows.length) {
-                    $chips.innerHTML = '<span class="text-muted">No AMS departments found for this plant.</span>';
-                    return;
-                }
-                $chips.innerHTML = rows.map(function (d) {
-                    return '<span class="lieo-add-dept-ams-chip">' + String(d).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
-                }).join('');
-            })
-            .catch(function () {
-                $chips.innerHTML = '<span class="text-danger">Could not load AMS departments.</span>';
-            });
-    }
-
     function showAddDeptModal() {
         syncDeptMasterLinks();
         var plant = $plant.value || '';
         document.getElementById('lieoAddDeptPlantLabel').textContent = plant || '—';
         document.getElementById('lieoAddDeptResult').style.display = 'none';
-        loadAmsDeptRef(plant);
         if ($addDeptModalEl) {
             $addDeptModalEl.style.zIndex = '2000';
         }
         if ($ && $.fn.modal && $addDeptModal && $addDeptModal.length) {
-            $('.modal-backdrop').not('.lieo-dialog-backdrop').remove();
             $addDeptModal.modal({ backdrop: true, keyboard: true, show: true });
             setTimeout(function () {
                 $('.modal-backdrop').last().css('z-index', 1990);
@@ -936,6 +921,8 @@ require_once __DIR__ . '/../includes/header.php';
         if (!$('.modal.show').length) {
             document.body.classList.remove('modal-open');
             document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+        } else {
+            document.body.classList.add('modal-open');
         }
     }
 
@@ -1061,7 +1048,41 @@ require_once __DIR__ . '/../includes/header.php';
         return t ? t.charAt(0).toUpperCase() : 'E';
     }
 
+    // One assignee per plant (Time Office/Security) or per department (HOD): show who holds it now.
+    function updateExistingNote() {
+        var $n = document.getElementById('empExistingNote');
+        var plant = ($plant.value || '').trim();
+        var role = $role.value;
+        var dept = isPlantOnlyRole() ? 'All' : ($dept.value || '').trim();
+        var found = [];
+        if (plant && role !== 'n1' && (isPlantOnlyRole() || dept)) {
+            matrixAssignments.forEach(function (r) {
+                if (String(r.plant).toUpperCase() !== plant.toUpperCase() || r.approval_step !== role || r.matrix_id === editMatrixId) return;
+                // Plant-level roles are one per plant whatever department value was stored.
+                if (isPlantOnlyRole() || r.department === dept) found.push(r);
+            });
+        }
+        if (!found.length) { $n.style.display = 'none'; return; }
+        var label = roleLabels[role] || role;
+        $n.innerHTML = '';
+        var head = document.createElement('div');
+        head.textContent = 'Current ' + label + ' for ' + plant + (isPlantOnlyRole() ? '' : ' · ' + dept) + ' (' + found.length + '):';
+        $n.appendChild(head);
+        found.forEach(function (r) {
+            var line = document.createElement('div');
+            line.className = 'font-weight-bold';
+            line.textContent = r.emp_name + ' (' + r.emp_code + ')' + (r.emp_email ? ' · ' + r.emp_email : '');
+            $n.appendChild(line);
+        });
+        var tail = document.createElement('div');
+        tail.textContent = 'Pick another employee to replace.';
+        $n.appendChild(tail);
+        $n.style.display = '';
+    }
+
     function syncDepartmentField() {
+        updateExistingNote();
+        document.getElementById('loginEmailGroup').style.display = $role.value === 'security' ? '' : 'none';
         var plantOnly = isPlantOnlyRole();
         if (plantOnly) {
             $deptGroup.style.display = 'none';
@@ -1071,12 +1092,12 @@ require_once __DIR__ . '/../includes/header.php';
             $deptAll.setAttribute('name', 'department');
         } else {
             $deptGroup.style.display = '';
+            $dept.disabled = !$plant.value;
             $deptAll.disabled = true;
             $deptAll.removeAttribute('name');
             $dept.setAttribute('name', 'department');
         }
         var hasPlant = canLoadEmployees();
-        $browseBtn.disabled = !hasPlant;
         if (hasPlant) {
             setBrowseLabel(document.getElementById('emp_code').value ? 'Change employee' : 'Click here to search & select employee');
             $countHint.textContent = 'Employees load by plant (all AMS departments). Choose LIEO department before save.';
@@ -1084,7 +1105,7 @@ require_once __DIR__ . '/../includes/header.php';
         } else {
             empCache = [];
             empLoadedFor = '';
-            setBrowseLabel('Select plant first');
+            setBrowseLabel('Click here to search & select employee');
             $countHint.textContent = 'Select plant first, then pick an employee (all AMS departments for that plant).';
         }
     }
@@ -1115,7 +1136,7 @@ require_once __DIR__ . '/../includes/header.php';
             $pickerCard.classList.remove('has-selection');
             $pickerSelected.style.display = 'none';
             setAmsDeptDisplay('');
-            setBrowseLabel(canLoadEmployees() ? 'Click here to search & select employee' : 'Select plant first');
+            setBrowseLabel('Click here to search & select employee');
         }
     }
 
@@ -1143,12 +1164,12 @@ require_once __DIR__ . '/../includes/header.php';
         var selected = document.getElementById('emp_code').value;
         var matched = empCache.filter(function (e) {
             if (!q) return true;
-            var hay = ((e.empCode || '') + ' ' + (e.empName || '') + ' ' + (e.empBusiEmail || '') + ' ' + amsDeptLabel(e)).toLowerCase();
+            var hay = ((e.empCode || '') + ' ' + (e.empName || '') + ' ' + (e.empBusiEmail || '')).toLowerCase();
             return hay.indexOf(q) !== -1;
         });
         $modalBody.innerHTML = '';
         if (!matched.length) {
-            $modalBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">'
+            $modalBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">'
                 + (empCache.length ? 'No matches for your search.' : 'No employees found for this plant.')
                 + '</td></tr>';
             $modalCount.textContent = 'Showing 0 of ' + empCache.length;
@@ -1161,11 +1182,9 @@ require_once __DIR__ . '/../includes/header.php';
             tr.innerHTML =
                 '<td><code>' + code + '</code></td>' +
                 '<td><div class="lieo-emp-row-name"></div><div class="lieo-emp-row-email"></div></td>' +
-                '<td><div class="lieo-emp-row-dept"></div></td>' +
                 '<td class="text-right"><button type="button" class="btn btn-sm btn-lieo">Select</button></td>';
             tr.querySelector('.lieo-emp-row-name').textContent = e.empName || '';
             tr.querySelector('.lieo-emp-row-email').textContent = e.empBusiEmail || '—';
-            tr.querySelector('.lieo-emp-row-dept').textContent = amsDeptLabel(e);
             tr.addEventListener('click', function (ev) {
                 if (ev.target.closest('button') || ev.target === tr || tr.contains(ev.target)) {
                     selectEmployee(e);
@@ -1200,7 +1219,7 @@ require_once __DIR__ . '/../includes/header.php';
                     if (found) {
                         document.getElementById('emp_code').value = String(found.empCode || '');
                         document.getElementById('emp_name').value = found.empName || '';
-                        document.getElementById('emp_email').value = found.empBusiEmail || '';
+                        if (!document.getElementById('emp_email').value) document.getElementById('emp_email').value = found.empBusiEmail || '';
                         setAmsDeptDisplay(amsDeptLabel(found));
                         updatePickerUI();
                     }
@@ -1227,9 +1246,9 @@ require_once __DIR__ . '/../includes/header.php';
             }
             return;
         }
-        $modalScope.textContent = $plant.value + ' · All AMS departments';
+        $modalScope.textContent = $plant.value;
         $modalSearch.value = '';
-        $modalBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">Loading employees…</td></tr>';
+        $modalBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Loading employees…</td></tr>';
         $modalCount.textContent = 'Loading…';
         showEmpModal();
         preloadEmployees(false, false).then(function () {
@@ -1427,6 +1446,7 @@ require_once __DIR__ . '/../includes/header.php';
     });
 
     $dept.addEventListener('change', function () {
+        updateExistingNote();
         if (canLoadEmployees() && document.getElementById('emp_code').value) {
             $countHint.textContent = 'LIEO department is for approvals — may differ from the AMS department shown on the employee.';
         }
@@ -1442,13 +1462,6 @@ require_once __DIR__ . '/../includes/header.php';
         if (!btn) return;
         selectDepartment(btn.getAttribute('data-dept') || '');
     });
-
-    var $amsRef = document.getElementById('lieoAddDeptAmsRef');
-    if ($amsRef) {
-        $amsRef.addEventListener('click', function () {
-            $amsRef.classList.toggle('is-expanded');
-        });
-    }
 
     function findReplaceConflict() {
         var plant = ($plant.value || '').trim();
@@ -1546,6 +1559,13 @@ require_once __DIR__ . '/../includes/header.php';
         }
     });
 
+    // Departments are per plant: tell the user instead of a dead-looking control.
+    $deptGroup.addEventListener('click', function (ev) {
+        if ($plant.value || ev.target.closest('button,a,label')) return;
+        if (window.lieoAlert) lieoAlert({ title: 'Select plant first', message: 'Departments are configured per plant. Choose the plant, then pick the department.' });
+        $plantSearch.focus();
+    });
+
     document.addEventListener('click', function (ev) {
         if (!$plantBox.contains(ev.target) && ev.target !== $plantSearch) $plantBox.style.display = 'none';
     });
@@ -1553,6 +1573,16 @@ require_once __DIR__ . '/../includes/header.php';
     updatePickerUI();
     syncDepartmentField();
     syncDeptMasterLinks();
+
+    var $matrixModalEl = document.getElementById('matrixModal');
+    var $matrixModal = $('#matrixModal').appendTo('body');
+    function openMatrixModal() { $matrixModal.modal({ backdrop: 'static', keyboard: true, show: true }); }
+    document.getElementById('matrixAddBtn').addEventListener('click', openMatrixModal);
+    // Edit/Replace arrive as ?edit=/?transfer= — closing the modal returns to the plain list.
+    if ($matrixModalEl.getAttribute('data-open') === '1') {
+        $matrixModal.on('hidden.bs.modal', function () { location.href = $matrixModalEl.getAttribute('data-list-url'); });
+        openMatrixModal();
+    }
 
     if ($modalEl) {
         var closeBtn = document.getElementById('empModalCloseBtn');

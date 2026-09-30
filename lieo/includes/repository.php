@@ -76,12 +76,6 @@ function lieo_ensure_lieo_auth_schema(): void
 function lieo_find_user_by_login(string $email, string $password): ?array
 {
     $email = trim($email);
-    if (lieo_is_local_dev()) {
-        $localUser = lieo_find_local_test_user_by_email($email);
-        if ($localUser) {
-            return $localUser;
-        }
-    }
 
     lieo_ensure_lieo_auth_schema();
     $db = lieo_db();
@@ -95,6 +89,9 @@ function lieo_find_user_by_login(string $email, string $password): ?array
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
+    if (!$row && lieo_is_local_dev()) {
+        $row = lieo_local_login_from_matrix($email);
+    }
     if (!$row) {
         return null;
     }
@@ -111,15 +108,44 @@ function lieo_find_user_by_login(string $email, string $password): ?array
 }
 
 /**
+ * Local WAMP only (LIEO_LOCAL_DEV=1 + localhost): an imported DB has matrix rows but no
+ * login rows, so create the missing login on the fly from the Approval Matrix so any
+ * assigned user can be signed in by email alone. Never runs on a live server.
+ */
+function lieo_local_login_from_matrix(string $email): ?array
+{
+    if (!lieo_is_local_dev()) {
+        return null;
+    }
+    $stmt = lieo_db()->prepare(
+        "SELECT plant, department, approval_step, emp_code, emp_name, emp_email
+         FROM tbl_lieo_approval_matrix WHERE emp_email = ? AND status = 'Active' ORDER BY matrix_id LIMIT 1"
+    );
+    $stmt->bind_param('s', $email);
+    $stmt->execute();
+    $m = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$m) {
+        return null;
+    }
+    $made = lieo_create_user([
+        'full_name' => $m['emp_name'],
+        'email' => $m['emp_email'],
+        'role' => $m['approval_step'],
+        'emp_code' => $m['emp_code'],
+        'plant' => $m['plant'],
+        'department' => $m['department'] === 'All' ? '' : $m['department'],
+    ], lieo_generate_password());
+    return $made['ok'] ? lieo_get_user((int) $made['lieo_user_id']) : null;
+}
+
+/**
  * Diagnose login failure without revealing too much in UI by default.
  * @return 'missing'|'inactive'|'bad_password'|'ok'
  */
 function lieo_login_diagnose(string $email, string $password): string
 {
     $email = trim($email);
-    if (lieo_is_local_dev() && lieo_find_local_test_user_by_email($email)) {
-        return 'ok';
-    }
 
     lieo_ensure_lieo_auth_schema();
     $db = lieo_db();
@@ -246,6 +272,20 @@ function lieo_find_user_by_email(string $email): ?array
     return $row ?: null;
 }
 
+/** Active matrix people sharing one email → [emp_code => emp_name]. */
+function lieo_matrix_people_by_email(string $email): array
+{
+    $stmt = lieo_db()->prepare(
+        "SELECT emp_code, MAX(emp_name) AS emp_name FROM tbl_lieo_approval_matrix
+         WHERE emp_email = ? AND status = 'Active' AND emp_code <> '' GROUP BY emp_code ORDER BY emp_name"
+    );
+    $stmt->bind_param('s', $email);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return array_column($rows, 'emp_name', 'emp_code');
+}
+
 /**
  * Create or update LIEO login from Approval Matrix assignment.
  */
@@ -268,6 +308,8 @@ function lieo_provision_matrix_user(
         return ['ok' => false, 'message' => 'Employee email, name and code are required for login.'];
     }
 
+    $cc = $plant !== '' ? lieo_list_plant_notify_emails($plant, 'approval_matrix') : [];
+
     $existing = lieo_find_user_by_email($empEmail);
     if ($existing) {
         if ($existing['role'] !== $role) {
@@ -281,7 +323,7 @@ function lieo_provision_matrix_user(
                 return ['ok' => false, 'message' => 'Email already used for role ' . lieo_role_label($existing['role']) . '.'];
             }
             if ($sendCredentials) {
-                lieo_send_role_assigned_email($empEmail, $empName, $role, $plant, $department);
+                lieo_send_role_assigned_email($empEmail, $empName, $role, $plant, $department, $cc);
             }
             return ['ok' => true, 'provisioned' => 'updated', 'email' => $empEmail];
         }
@@ -311,7 +353,7 @@ function lieo_provision_matrix_user(
             $must->bind_param('i', $uid);
             $must->execute();
             $must->close();
-            lieo_send_credentials_email($empEmail, $empName, $pass, false, $role);
+            lieo_send_credentials_email($empEmail, $empName, $pass, false, $role, $cc);
             return [
                 'ok' => true,
                 'provisioned' => 'created',
@@ -322,7 +364,7 @@ function lieo_provision_matrix_user(
 
         // Existing login with password — still notify on assign (popup / SMTP).
         if ($sendCredentials) {
-            lieo_send_role_assigned_email($empEmail, $empName, $role, $plant, $department);
+            lieo_send_role_assigned_email($empEmail, $empName, $role, $plant, $department, $cc);
         }
         return ['ok' => true, 'provisioned' => 'updated', 'email' => $empEmail];
     }
@@ -343,7 +385,7 @@ function lieo_provision_matrix_user(
     if (!$created['ok']) {
         return $created;
     }
-    lieo_send_credentials_email($created['email'], $created['name'], $created['password'], false, $role);
+    lieo_send_credentials_email($created['email'], $created['name'], $created['password'], false, $role, $cc);
     return [
         'ok' => true,
         'provisioned' => 'created',
@@ -380,6 +422,12 @@ function lieo_list_contractors(?string $status = null, ?string $plant = null): a
     $sql = "SELECT * FROM tbl_lieo_contractor WHERE " . implode(' AND ', $where) . " ORDER BY contractor_id DESC";
     $res = lieo_db()->query($sql);
     return $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+/** contractor_id => supervisor_name, for any status so historic applications still resolve. */
+function lieo_contractor_supervisor_map(?string $plant = null): array
+{
+    return array_column(lieo_list_contractors(null, $plant), 'supervisor_name', 'contractor_id');
 }
 
 function lieo_get_contractor(int $id): ?array
@@ -430,7 +478,7 @@ function lieo_save_contractor(array $data, ?int $id = null): array
     if ($role === 'timeoffice') {
         $sessionPlant = lieo_ams_canonical_plant($_SESSION['lieo_plant'] ?? '');
         if ($sessionPlant === '') {
-            return ['ok' => false, 'message' => 'Your Time Office login has no plant. Re-assign plant in Approval Matrix.'];
+            return ['ok' => false, 'message' => 'Your Time Office login has no plant. Re-assign plant in LIEO Users.'];
         }
         $plant = $sessionPlant;
         if ($id) {
@@ -662,9 +710,9 @@ function lieo_list_matrix(): array
 
 /**
  * Resend LIEO credentials email for a user, by lieo_user_id directly.
- * Only allowed while the user has not changed their first password yet.
+ * Unless $force (admin password reset), only allowed while the user has not changed their first password yet.
  */
-function lieo_resend_user_credentials(int $userId): array
+function lieo_resend_user_credentials(int $userId, bool $force = false): array
 {
     $user = lieo_get_user($userId);
     if (!$user) {
@@ -678,7 +726,7 @@ function lieo_resend_user_credentials(int $userId): array
     if (($user['status'] ?? '') !== 'Active') {
         return ['ok' => false, 'message' => 'LIEO account is inactive.'];
     }
-    if (($user['must_change_password'] ?? 'f') !== 't') {
+    if (!$force && ($user['must_change_password'] ?? 'f') !== 't') {
         return ['ok' => false, 'message' => 'Password already changed — credentials cannot be resent.'];
     }
 
@@ -695,7 +743,7 @@ function lieo_resend_user_credentials(int $userId): array
     lieo_send_credentials_email($email, $name !== '' ? $name : $email, $pass, true, (string) ($user['role'] ?? ''));
     return [
         'ok' => true,
-        'message' => 'Credentials resent to ' . $email . ' (password: ' . $pass . ').',
+        'message' => 'Password reset — new temporary password emailed to ' . $email . ' (password: ' . $pass . ').',
         'password' => $pass,
         'email' => $email,
     ];
@@ -707,7 +755,7 @@ function lieo_resend_user_credentials(int $userId): array
  * call site, which only has a matrix_id, not the linked lieo_user_id).
  * Only allowed while the linked user has not changed their first password yet.
  */
-function lieo_resend_matrix_credentials(int $matrixId): array
+function lieo_resend_matrix_credentials(int $matrixId, bool $force = false): array
 {
     lieo_ensure_lieo_auth_schema();
     $db = lieo_db();
@@ -727,9 +775,22 @@ function lieo_resend_matrix_credentials(int $matrixId): array
         return ['ok' => false, 'message' => 'Assignment not found.'];
     }
     if (empty($row['lieo_user_id'])) {
-        return ['ok' => false, 'message' => 'No LIEO login linked. Save the assignment again to create login.'];
+        if (!$force) {
+            return ['ok' => false, 'message' => 'No LIEO login linked. Save the assignment again to create login.'];
+        }
+        // Reset on an assignment that never got a login: create it and email the credentials.
+        $prov = lieo_provision_matrix_user(
+            (string) $row['approval_step'], (string) $row['plant'], (string) $row['department'],
+            (string) $row['emp_code'], (string) $row['emp_name'], (string) $row['emp_email'], true
+        );
+        if (!$prov['ok']) {
+            return $prov;
+        }
+        $prov['message'] = 'No login existed — created one and emailed credentials to ' . $row['emp_email']
+            . (!empty($prov['password']) ? ' (password: ' . $prov['password'] . ')' : '') . '.';
+        return $prov;
     }
-    return lieo_resend_user_credentials((int) $row['lieo_user_id']);
+    return lieo_resend_user_credentials((int) $row['lieo_user_id'], $force);
 }
 
 /** Single-assignee steps: at most one active row per (plant, department). 'n1' is exempt (multiple allowed). */
@@ -796,7 +857,7 @@ function lieo_apply_matrix_rule(array $data, ?int $id, int $actorUserId): array
             return ['ok' => false, 'message' => 'Employee business email is required (used as login ID).'];
         }
         if ($step === 'timeoffice' || $step === 'security') {
-            if (!lieo_ams_department_is_hr($plant, $empEmail)) {
+            if (!lieo_ams_department_is_hr($plant, $empEmail, $empCode)) {
                 return ['ok' => false, 'message' => lieo_role_label($step) . ' must be an HR department employee.'];
             }
         }
@@ -903,6 +964,71 @@ function lieo_delete_matrix_rule(int $id): bool
     return $ok;
 }
 
+/** Notify the removed assignee (CC'd by the approval_matrix notify list) that their matrix role was removed. */
+function lieo_notify_matrix_removed(array $row): void
+{
+    $email = trim((string) ($row['emp_email'] ?? ''));
+    if ($email === '') {
+        return;
+    }
+    $name = trim((string) ($row['emp_name'] ?? '')) ?: $email;
+    $plant = lieo_ams_canonical_plant((string) ($row['plant'] ?? ''));
+    $department = trim((string) ($row['department'] ?? ''));
+    $roleLabel = lieo_role_label((string) ($row['approval_step'] ?? ''));
+    $cc = $plant !== '' ? lieo_list_plant_notify_emails($plant, 'approval_matrix') : [];
+    $plantDept = trim($plant . ($department !== '' && $department !== 'All' ? ' / ' . $department : ''));
+
+    $subject = LIEO_APP_SHORT . ' :: Role removed — ' . $roleLabel;
+    $body = 'Dear ' . htmlspecialchars($name) . ',<br><br>'
+        . 'Your <strong>' . htmlspecialchars($roleLabel) . '</strong> assignment in '
+        . '<strong>' . htmlspecialchars(LIEO_APP_NAME) . '</strong> has been removed.';
+    lieo_send_mail($email, $name, $subject, $body, $cc, [
+        'context' => 'Role Assignment',
+        'headline' => 'Role removed: ' . $roleLabel,
+        'subhead' => 'Approval matrix assignment removed.',
+        'to_role' => $roleLabel,
+        'cards' => [
+            ['label' => 'Employee', 'value' => $name],
+            ['label' => 'Role', 'value' => $roleLabel],
+            ['label' => 'Plant / Dept', 'value' => $plantDept !== '' ? $plantDept : '—'],
+        ],
+    ]);
+}
+
+/** Notify plant Time Office that Admin changed the Department Master (CC'd by the department notify list). */
+function lieo_notify_department_changed(string $plant, string $deptName, string $action): void
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    $deptName = trim($deptName);
+    if ($plant === '' || $deptName === '') {
+        return;
+    }
+    $to = lieo_list_role_notify_recipients_for_plant('timeoffice', $plant);
+    if (!$to) {
+        return;
+    }
+    $cc = lieo_list_plant_notify_emails($plant, 'department');
+    $actionLabel = ucfirst($action);
+    $subject = LIEO_APP_SHORT . ' :: Department ' . $actionLabel . ' — ' . $deptName;
+    foreach ($to as $recipient) {
+        $body = 'Dear ' . htmlspecialchars($recipient['name']) . ',<br><br>'
+            . 'Department <strong>' . htmlspecialchars($deptName) . '</strong> was <strong>'
+            . htmlspecialchars(strtolower($actionLabel)) . '</strong> for plant '
+            . '<strong>' . htmlspecialchars($plant) . '</strong> in Department Master.';
+        lieo_send_mail($recipient['email'], $recipient['name'], $subject, $body, $cc, [
+            'context' => 'Department Master',
+            'headline' => 'Department ' . $actionLabel,
+            'subhead' => 'Department Master updated.',
+            'to_role' => 'Time Office',
+            'cards' => [
+                ['label' => 'Department', 'value' => $deptName],
+                ['label' => 'Plant', 'value' => $plant],
+                ['label' => 'Action', 'value' => $actionLabel],
+            ],
+        ]);
+    }
+}
+
 function lieo_get_matrix_approver(string $plant, string $dept, string $step): ?array
 {
     $plant = lieo_ams_canonical_plant($plant);
@@ -957,6 +1083,34 @@ function lieo_list_users_for_plant(string $plant): array
     $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
     return $rows;
+}
+
+/** Active LIEO login(s) for a role, scoped to one plant. @return list<array{email:string,name:string}> */
+function lieo_list_role_notify_recipients_for_plant(string $role, string $plant): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return [];
+    }
+    $canon = lieo_sql_canonical_plant('plant');
+    $stmt = lieo_db()->prepare(
+        "SELECT full_name, email FROM tbl_lieo_user WHERE role=? AND status='Active' AND email<>'' AND $canon = ?"
+    );
+    if (!$stmt) {
+        return [];
+    }
+    $stmt->bind_param('ss', $role, $plant);
+    $stmt->execute();
+    $out = [];
+    $res = $stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+        $email = trim($row['email'] ?? '');
+        if ($email !== '') {
+            $out[$email] = ['email' => $email, 'name' => trim($row['full_name'] ?? '') ?: $email];
+        }
+    }
+    $stmt->close();
+    return array_values($out);
 }
 
 /**
@@ -1063,7 +1217,7 @@ function lieo_submit_user_request(array $data): array
     if (lieo_matrix_needs_department($step) && $dept === '') {
         return ['ok' => false, 'message' => 'Department is required for this role.'];
     }
-    if (($step === 'timeoffice' || $step === 'security') && !lieo_ams_department_is_hr($plant, $empEmail)) {
+    if (($step === 'timeoffice' || $step === 'security') && !lieo_ams_department_is_hr($plant, $empEmail, $empCode)) {
         return ['ok' => false, 'message' => lieo_role_label($step) . ' must be an HR department employee.'];
     }
 
@@ -1291,7 +1445,15 @@ function lieo_session_n1_department(): string
     return $depts[0] ?? $dept;
 }
 
-function lieo_apply_session_plant_scope(array $filters): array
+/**
+ * @param bool $plantWideForHrHod Widen from "HOD's own department(s)" to "whole plant"
+ *   for the HR department's HOD — same plant-wide oversight they already get for User
+ *   Approval / Plant Users / Reactivation. Only pass true for read-only tracking/listing
+ *   pages: lieo_advance_application() independently re-checks department authority on
+ *   approve/reject, so widening the *actionable* pending queue would just show items the
+ *   HR HOD cannot actually act on — confusing, not unsafe, but still wrong to show there.
+ */
+function lieo_apply_session_plant_scope(array $filters, bool $plantWideForHrHod = false): array
 {
     $role = $_SESSION['lieo_role'] ?? '';
     if ($role === 'admin') {
@@ -1306,7 +1468,8 @@ function lieo_apply_session_plant_scope(array $filters): array
         // matrix, not $_SESSION['lieo_department'], which only ever holds one
         // value and would silently hide a second department's applications.
         $empCode = trim($_SESSION['lieo_emp_code'] ?? '');
-        if ($empCode !== '' && $plant !== '') {
+        $isHrHod = $plantWideForHrHod && $empCode !== '' && $plant !== '' && lieo_is_hr_hod($empCode, $plant);
+        if ($empCode !== '' && $plant !== '' && !$isHrHod) {
             $filters['department_in'] = lieo_list_matrix_departments_for_user($empCode, $plant, 'hod');
         }
     } elseif ($role === 'n1' || ($_SESSION['lieo_secondary_role'] ?? null) === 'n1') {
@@ -1546,7 +1709,7 @@ function lieo_list_ams_departments(string $plant): array
 }
 
 /**
- * Departments for a plant: AMS list plus any extra plant master rows (merged, deduped).
+ * Departments configured for a plant in Department Master (active only). AMS departments are not merged in.
  * @return list<string>
  */
 function lieo_list_departments_for_plant(string $plant): array
@@ -1558,19 +1721,6 @@ function lieo_list_departments_for_plant(string $plant): array
 
     $merged = [];
     $seen = [];
-
-    foreach (lieo_list_ams_departments($plant) as $dept) {
-        $dept = lieo_normalize_dept_name((string) $dept);
-        if ($dept === '') {
-            continue;
-        }
-        $key = strtolower($dept);
-        if (isset($seen[$key])) {
-            continue;
-        }
-        $seen[$key] = true;
-        $merged[] = $dept;
-    }
 
     foreach (lieo_list_plant_departments($plant, true) as $row) {
         $dept = lieo_normalize_dept_name((string) ($row['department_name'] ?? ''));
@@ -1746,7 +1896,7 @@ function lieo_is_hr_hod(string $empCode, string $plant): bool
  * against the is_hr row's separately recorded ams_department_name, not its
  * department_name.
  */
-function lieo_ams_department_is_hr(string $plant, string $empEmail): bool
+function lieo_ams_department_is_hr(string $plant, string $empEmail, string $empCode = ''): bool
 {
     $plant = lieo_ams_canonical_plant($plant);
     if ($plant === '') {
@@ -1766,12 +1916,188 @@ function lieo_ams_department_is_hr(string $plant, string $empEmail): bool
     if ($amsHrDept === '') {
         return false;
     }
+    // Security may log in with a shared/custom mailbox that is not the employee's own AMS
+    // email, so when the employee code is known, judge the HR department by that code.
+    $empCode = trim($empCode);
+    if ($empCode !== '') {
+        $table = lieo_ams_employee_table();
+        $stmt = lieo_db()->prepare(
+            "SELECT TRIM(Department) AS dept FROM `$table`
+             WHERE empStatus = 'Active' AND " . lieo_ams_product_line_sql() . ' AND ' . lieo_ams_plant_match_sql() . '
+               AND empCode = ? LIMIT 1'
+        );
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('ss', $plant, $empCode);
+        $stmt->execute();
+        $r = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $r ? lieo_dept_names_equal((string) $r['dept'], $amsHrDept) : false;
+    }
     foreach (lieo_list_ams_emails_for_plant($plant) as $r) {
         if (strcasecmp($r['email'], trim($empEmail)) === 0) {
             return lieo_dept_names_equal((string) $r['department'], $amsHrDept);
         }
     }
     return false;
+}
+
+// ---------------------------------------------------------------------------
+// Department requests (Admin add/edit of Department Master rows, pending the
+// HR-department HOD's approval — same pattern as user requests above.
+// Deactivate/activate/delete stay immediate; only add/edit are gated.)
+// ---------------------------------------------------------------------------
+
+function lieo_submit_department_request(string $plant, string $name, ?int $id = null, bool $isHr = false, string $amsDeptName = ''): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    $name = lieo_normalize_dept_name($name);
+    if ($plant === '' || $name === '') {
+        return ['ok' => false, 'message' => 'Plant and department name are required.'];
+    }
+    $amsDeptName = trim($amsDeptName);
+    if ($isHr && $amsDeptName !== '' && !in_array($amsDeptName, lieo_list_ams_departments($plant), true)) {
+        return ['ok' => false, 'message' => 'Selected AMS department is not valid for this plant.'];
+    }
+    if (!$isHr) {
+        foreach (lieo_list_ams_departments($plant) as $amsDept) {
+            if (lieo_dept_names_equal($name, (string) $amsDept)) {
+                return ['ok' => false, 'code' => 'ams_duplicate', 'message' => 'Department already mentioned in the AMS portal'];
+            }
+        }
+    }
+    foreach (lieo_list_plant_departments($plant) as $row) {
+        if ($id !== null && (int) ($row['dept_id'] ?? 0) === $id) {
+            continue;
+        }
+        if (lieo_dept_names_equal($name, (string) ($row['department_name'] ?? ''))) {
+            return ['ok' => false, 'code' => 'master_duplicate', 'message' => 'Department already exists for this plant.'];
+        }
+    }
+
+    $type = $id ? 'edit' : 'add';
+    $requestedBy = (int) ($_SESSION['lieo_user_id'] ?? 0);
+    $isHrInt = $isHr ? 1 : 0;
+    $stmt = lieo_db()->prepare(
+        "INSERT INTO tbl_lieo_department_request
+         (request_type, plant, department_name, is_hr, ams_department_name, target_dept_id, status, requested_by)
+         VALUES (?,?,?,?,?,?,'Pending',?)"
+    );
+    if (!$stmt) {
+        return ['ok' => false, 'message' => 'Prepare failed: ' . lieo_db()->error];
+    }
+    $stmt->bind_param('sssisii', $type, $plant, $name, $isHrInt, $amsDeptName, $id, $requestedBy);
+    $ok = $stmt->execute();
+    $newId = (int) $stmt->insert_id;
+    $err = $stmt->error;
+    $stmt->close();
+    if (!$ok) {
+        return ['ok' => false, 'message' => $err ?: 'Could not submit request.'];
+    }
+
+    $request = lieo_get_department_request($newId);
+    if ($request) {
+        lieo_notify_department_request_submitted($request);
+    }
+    $message = 'Request submitted for HR department HOD approval.';
+    $hrDept = lieo_hr_department_name($plant);
+    $approver = $hrDept !== null ? lieo_matrix_notify_recipient($plant, $hrDept, 'hod') : null;
+    if ($approver) {
+        $message = 'Request submitted for HR department HOD approval (' . $approver['name'] . ' – ' . $approver['email'] . ').';
+    }
+    return ['ok' => true, 'request_id' => $newId, 'message' => $message];
+}
+
+function lieo_get_department_request(int $requestId): ?array
+{
+    $stmt = lieo_db()->prepare('SELECT * FROM tbl_lieo_department_request WHERE request_id = ?');
+    $stmt->bind_param('i', $requestId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
+/** @return list<array<string,mixed>> */
+function lieo_list_department_requests(string $plant, string $status = 'Pending'): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    if ($plant === '') {
+        return [];
+    }
+    $sql = 'SELECT * FROM tbl_lieo_department_request WHERE plant = ?';
+    $types = 's';
+    $params = [$plant];
+    if ($status !== '') {
+        $sql .= ' AND status = ?';
+        $types .= 's';
+        $params[] = $status;
+    }
+    $sql .= ' ORDER BY created_at DESC';
+    $stmt = lieo_db()->prepare($sql);
+    if (!$stmt) {
+        return [];
+    }
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return $rows;
+}
+
+/** Pending requests indexed by the existing dept_id they target (edits only — adds have no target yet). */
+function lieo_list_pending_department_target_requests(): array
+{
+    $rows = lieo_db()->query(
+        "SELECT * FROM tbl_lieo_department_request WHERE status = 'Pending' AND target_dept_id IS NOT NULL"
+    )->fetch_all(MYSQLI_ASSOC);
+    $byTarget = [];
+    foreach ($rows as $r) {
+        $byTarget[(int) $r['target_dept_id']] = $r;
+    }
+    return $byTarget;
+}
+
+function lieo_decide_department_request(int $requestId, string $decision, int $hrHodUserId, string $remark): array
+{
+    if (!in_array($decision, ['Approved', 'Rejected'], true)) {
+        return ['ok' => false, 'message' => 'Invalid decision.'];
+    }
+    $request = lieo_get_department_request($requestId);
+    if (!$request || ($request['status'] ?? '') !== 'Pending') {
+        return ['ok' => false, 'message' => 'Request not found or already decided.'];
+    }
+
+    if ($decision === 'Approved') {
+        $targetId = !empty($request['target_dept_id']) ? (int) $request['target_dept_id'] : null;
+        $apply = lieo_save_plant_department(
+            (string) $request['plant'],
+            (string) $request['department_name'],
+            $targetId,
+            (bool) $request['is_hr'],
+            (string) $request['ams_department_name']
+        );
+        if (!$apply['ok']) {
+            return $apply;
+        }
+        lieo_notify_department_changed((string) $request['plant'], (string) $request['department_name'], $targetId ? 'updated' : 'added');
+    }
+
+    $stmt = lieo_db()->prepare(
+        'UPDATE tbl_lieo_department_request SET status=?, decided_by=?, decision_remark=?, decided_at=NOW() WHERE request_id=?'
+    );
+    $stmt->bind_param('sisi', $decision, $hrHodUserId, $remark, $requestId);
+    $ok = $stmt->execute();
+    $stmt->close();
+    if (!$ok) {
+        return ['ok' => false, 'message' => 'Could not record decision.'];
+    }
+
+    $request['status'] = $decision;
+    $request['decision_remark'] = $remark;
+    lieo_notify_department_request_decided($request, $decision);
+    return ['ok' => true, 'message' => 'Request ' . strtolower($decision) . '.'];
 }
 
 function lieo_save_plant_department(string $plant, string $name, ?int $id = null, bool $isHr = false, string $amsDeptName = ''): array
@@ -1929,6 +2255,17 @@ function lieo_add_plant_departments_bulk(string $plant, array $names): array
     ];
 }
 
+function lieo_find_plant_department_by_id(int $id, string $plant): ?array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    $stmt = lieo_db()->prepare('SELECT * FROM tbl_lieo_plant_department WHERE dept_id=? AND plant=?');
+    $stmt->bind_param('is', $id, $plant);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
 function lieo_delete_plant_department(int $id, string $plant): bool
 {
     $plant = lieo_ams_canonical_plant($plant);
@@ -1956,16 +2293,16 @@ function lieo_set_plant_department_status(int $id, string $plant, string $status
 }
 
 /** @return list<string> */
-function lieo_list_plant_notify_emails(string $plant): array
+function lieo_list_plant_notify_emails(string $plant, string $context = 'reactivation'): array
 {
     $plant = lieo_ams_canonical_plant($plant);
     $stmt = lieo_db()->prepare(
-        "SELECT email FROM tbl_lieo_plant_notify_email WHERE plant=? AND status='Active' ORDER BY email"
+        "SELECT email FROM tbl_lieo_plant_notify_email WHERE plant=? AND context=? AND status='Active' ORDER BY email"
     );
     if (!$stmt) {
         return [];
     }
-    $stmt->bind_param('s', $plant);
+    $stmt->bind_param('ss', $plant, $context);
     $stmt->execute();
     $out = [];
     $res = $stmt->get_result();
@@ -1979,7 +2316,7 @@ function lieo_list_plant_notify_emails(string $plant): array
     return $out;
 }
 
-function lieo_add_plant_notify_email(string $plant, string $email): array
+function lieo_add_plant_notify_email(string $plant, string $email, string $context = 'reactivation'): array
 {
     $plant = lieo_ams_canonical_plant($plant);
     $email = strtolower(trim($email));
@@ -1991,10 +2328,10 @@ function lieo_add_plant_notify_email(string $plant, string $email): array
     }
     $by = (int) ($_SESSION['lieo_user_id'] ?? 0);
     $stmt = lieo_db()->prepare(
-        "INSERT INTO tbl_lieo_plant_notify_email (plant, email, status, created_by) VALUES (?,?,'Active',?)
+        "INSERT INTO tbl_lieo_plant_notify_email (plant, context, email, status, created_by) VALUES (?,?,?,'Active',?)
          ON DUPLICATE KEY UPDATE status='Active'"
     );
-    $stmt->bind_param('ssi', $plant, $email, $by);
+    $stmt->bind_param('sssi', $plant, $context, $email, $by);
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
@@ -2011,16 +2348,41 @@ function lieo_delete_plant_notify_email(int $id, string $plant): bool
     return $ok;
 }
 
-function lieo_list_plant_notify_rows(string $plant): array
+function lieo_set_plant_notify_status(int $id, string $plant, string $status): bool
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    $stmt = lieo_db()->prepare('UPDATE tbl_lieo_plant_notify_email SET status=? WHERE notify_id=? AND plant=?');
+    $stmt->bind_param('sis', $status, $id, $plant);
+    $ok = $stmt->execute();
+    $stmt->close();
+    return $ok;
+}
+
+function lieo_update_plant_notify_email(int $id, string $plant, string $email): array
+{
+    $plant = lieo_ams_canonical_plant($plant);
+    $email = strtolower(trim($email));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !lieo_ams_email_in_plant($plant, $email)) {
+        return ['ok' => false, 'message' => 'Email must belong to an AMS employee at this plant.'];
+    }
+    $stmt = lieo_db()->prepare('UPDATE tbl_lieo_plant_notify_email SET email=? WHERE notify_id=? AND plant=?');
+    $stmt->bind_param('sis', $email, $id, $plant);
+    $ok = $stmt->execute();
+    $err = $stmt->error;
+    $stmt->close();
+    return $ok ? ['ok' => true] : ['ok' => false, 'message' => str_contains($err, 'Duplicate') ? 'That email already exists for this notification.' : ($err ?: 'Could not update.')];
+}
+
+function lieo_list_plant_notify_rows(string $plant, string $context = 'reactivation'): array
 {
     $plant = lieo_ams_canonical_plant($plant);
     $stmt = lieo_db()->prepare(
-        "SELECT * FROM tbl_lieo_plant_notify_email WHERE plant=? ORDER BY email"
+        "SELECT * FROM tbl_lieo_plant_notify_email WHERE plant=? AND context=? ORDER BY email"
     );
     if (!$stmt) {
         return [];
     }
-    $stmt->bind_param('s', $plant);
+    $stmt->bind_param('ss', $plant, $context);
     $stmt->execute();
     $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -2248,8 +2610,8 @@ function lieo_create_application(array $data): array
     if (!in_array($type, ['Late Coming', 'Early Going'], true) || $reason === '') {
         return ['ok' => false, 'message' => 'Application type and reason are required.'];
     }
-    if ($workmanName === '' || $workmanCode === '' || $contractorId < 1 || $plant === '' || $department === '') {
-        return ['ok' => false, 'message' => 'Workman name, ID code, contractor, plant and department are required.'];
+    if ($workmanName === '' || $workmanCode === '' || $contractorId < 1 || $plant === '' || $department === '' || $shift === '') {
+        return ['ok' => false, 'message' => 'Workman name, ID code, contractor, shift, plant and department are required.'];
     }
 
     $contractor = lieo_get_contractor($contractorId);
@@ -2388,9 +2750,11 @@ function lieo_list_applications(array $filters = []): array
     if (!empty($filters['contractor_id'])) {
         $where[] = "contractor_id = " . (int) $filters['contractor_id'];
     }
-    if (!empty($filters['workman'])) {
-        $q = lieo_esc($filters['workman']);
-        $where[] = "(workman_name LIKE '%$q%' OR workman_code LIKE '%$q%')";
+    if (!empty($filters['workman_id'])) {
+        $where[] = "workman_id = " . (int) $filters['workman_id'];
+    }
+    if (!empty($filters['shift'])) {
+        $where[] = "shift = '" . lieo_esc($filters['shift']) . "'";
     }
     if (!empty($filters['date_to'])) {
         $where[] = "application_date <= '" . lieo_esc($filters['date_to']) . "'";
@@ -2538,6 +2902,11 @@ function lieo_gate_action(int $appId, string $action, int $securityUserId, strin
     $secUser = lieo_get_user($securityUserId);
     $secName = $secUser['full_name'] ?? 'Security';
     $secCode = $secUser['emp_code'] ?? '';
+    // Shared gate login: record the person picked at sign-in, not the login owner.
+    if ($securityUserId === (int) ($_SESSION['lieo_user_id'] ?? 0) && !empty($_SESSION['lieo_emp_code'])) {
+        $secName = (string) ($_SESSION['lieo_user_name'] ?? $secName);
+        $secCode = (string) $_SESSION['lieo_emp_code'];
+    }
 
     $db = lieo_db();
     if ($action === 'in') {
@@ -2651,6 +3020,77 @@ function lieo_list_shifts(): array
 {
     $res = lieo_db()->query("SELECT * FROM tbl_lieo_shift_master WHERE status='Active' ORDER BY shift_id");
     return $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+/** All shifts (any status) for the admin Shift Master page. */
+function lieo_list_all_shifts(): array
+{
+    $res = lieo_db()->query('SELECT * FROM tbl_lieo_shift_master ORDER BY shift_id');
+    return $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+function lieo_get_shift(int $id): ?array
+{
+    $stmt = lieo_db()->prepare('SELECT * FROM tbl_lieo_shift_master WHERE shift_id=? LIMIT 1');
+    $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
+function lieo_save_shift(array $data, ?int $id = null): array
+{
+    $name = trim((string) ($data['shift_name'] ?? ''));
+    $start = trim((string) ($data['start_time'] ?? ''));
+    $end = trim((string) ($data['end_time'] ?? ''));
+    $lateGrace = (int) ($data['late_grace_minutes'] ?? 0);
+    $earlyGrace = (int) ($data['early_grace_minutes'] ?? 0);
+
+    if ($name === '' || $start === '' || $end === '') {
+        return ['ok' => false, 'message' => 'Shift name, start time and end time are required.'];
+    }
+    if ($lateGrace < 0 || $earlyGrace < 0) {
+        return ['ok' => false, 'message' => 'Grace minutes cannot be negative.'];
+    }
+
+    $db = lieo_db();
+    if ($id) {
+        $stmt = $db->prepare(
+            'UPDATE tbl_lieo_shift_master
+             SET shift_name=?, start_time=?, end_time=?, late_grace_minutes=?, early_grace_minutes=?
+             WHERE shift_id=?'
+        );
+        $stmt->bind_param('sssiii', $name, $start, $end, $lateGrace, $earlyGrace, $id);
+    } else {
+        $stmt = $db->prepare(
+            "INSERT INTO tbl_lieo_shift_master (shift_name, start_time, end_time, late_grace_minutes, early_grace_minutes, status)
+             VALUES (?,?,?,?,?,'Active')"
+        );
+        $stmt->bind_param('sssii', $name, $start, $end, $lateGrace, $earlyGrace);
+    }
+    $ok = $stmt->execute();
+    $err = $stmt->error;
+    $stmt->close();
+    return $ok ? ['ok' => true] : ['ok' => false, 'message' => $err ?: 'Save failed.'];
+}
+
+function lieo_set_shift_status(int $id, string $status): bool
+{
+    $stmt = lieo_db()->prepare("UPDATE tbl_lieo_shift_master SET status=? WHERE shift_id=?");
+    $stmt->bind_param('si', $status, $id);
+    $ok = $stmt->execute();
+    $stmt->close();
+    return $ok;
+}
+
+function lieo_delete_shift(int $id): bool
+{
+    $stmt = lieo_db()->prepare('DELETE FROM tbl_lieo_shift_master WHERE shift_id=?');
+    $stmt->bind_param('i', $id);
+    $ok = $stmt->execute();
+    $stmt->close();
+    return $ok;
 }
 
 function lieo_get_application_approvals(int $appId): array

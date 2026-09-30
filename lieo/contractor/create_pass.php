@@ -5,7 +5,8 @@ lieo_require_role(['contractor']);
 $pageTitle = 'Create Gate Pass';
 $activeNav = 'create';
 
-global $LIEO_PLANTS, $LIEO_DEPARTMENTS, $LIEO_SHIFTS;
+global $LIEO_PLANTS, $LIEO_DEPARTMENTS;
+$LIEO_SHIFTS = array_column(lieo_list_shifts(), 'shift_name');
 
 $contractorName = 'ABC Contractors Pvt Ltd';
 $vendorType = 'Outsider';

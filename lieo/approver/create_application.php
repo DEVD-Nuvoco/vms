@@ -5,7 +5,7 @@ lieo_require_role(['n1']);
 $pageTitle = 'Create Application';
 $activeNav = 'create';
 
-global $LIEO_SHIFTS;
+$LIEO_SHIFTS = array_column(lieo_list_shifts(), 'shift_name');
 
 $userPlant = lieo_ams_canonical_plant($_SESSION['lieo_plant'] ?? '');
 $userDept = lieo_session_n1_department();
@@ -71,13 +71,17 @@ require_once __DIR__ . '/../includes/header.php';
                     <option value="<?= (int) $c['contractor_id'] ?>">
                         <?= htmlspecialchars($c['contractor_name']) ?>
                         (<?= htmlspecialchars($c['contractor_type'] ?? '') ?>)
+                        <?php if (!empty($c['supervisor_name'])): ?>
+                        — Supervisor: <?= htmlspecialchars($c['supervisor_name']) ?>
+                        <?php endif; ?>
                     </option>
                     <?php endforeach; ?>
                 </select>
             </div>
             <div class="form-group">
-                <label>Shift</label>
-                <select name="shift" class="form-control">
+                <label>Shift *</label>
+                <select name="shift" class="form-control" required>
+                    <option value="">— Select shift —</option>
                     <?php foreach ($LIEO_SHIFTS as $s): ?>
                     <option><?= htmlspecialchars($s) ?></option>
                     <?php endforeach; ?>
